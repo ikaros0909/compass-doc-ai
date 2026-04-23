@@ -19,7 +19,7 @@ export function StatsBar({ summary }: { summary: Summary }) {
   return (
     <Card>
       <CardContent className="p-4">
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+        <div className="grid grid-cols-5 gap-1.5">
           <Stat
             icon={<FileText className="h-4 w-4" />}
             label="전체"
@@ -90,11 +90,15 @@ function Stat({
   color: string;
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-lg border bg-background/50 px-3 py-2">
-      <div className={color}>{icon}</div>
-      <div>
-        <div className="text-xs text-muted-foreground">{label}</div>
-        <div className="text-lg font-semibold tabular-nums">{value}</div>
+    <div className="flex flex-col items-center gap-1 rounded-lg border bg-background/50 px-2 py-2">
+      <div className={`flex items-center gap-1 ${color}`}>
+        {icon}
+        <span className="whitespace-nowrap text-[11px] leading-none text-muted-foreground">
+          {label}
+        </span>
+      </div>
+      <div className="text-lg font-semibold leading-none tabular-nums">
+        {value}
       </div>
     </div>
   );

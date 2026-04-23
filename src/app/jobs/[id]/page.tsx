@@ -36,7 +36,7 @@ export default async function JobDetailPage({
   const json = await loadJson(job.jsonPath);
 
   return (
-    <main className="container mx-auto max-w-[1400px] py-6">
+    <main className="container mx-auto h-screen max-w-[1400px] overflow-y-auto py-6">
       <div className="mb-4 flex items-center gap-2">
         <Button asChild variant="ghost" size="sm" className="gap-1">
           <Link href="/">

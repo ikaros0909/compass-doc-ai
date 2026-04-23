@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Loader2,
@@ -249,12 +249,14 @@ export function ExportPreviewDialog({
       setOffset(0);
       return;
     }
-    let cancelled = false;
+    const controller = new AbortController();
     (async () => {
       try {
-        const res = await fetch(`/api/exports/${exportId}`, { cache: "no-store" });
+        const res = await fetch(`/api/exports/${exportId}`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
         const json = await res.json();
-        if (cancelled) return;
         if (!res.ok) {
           setError(json?.detail || json?.error || `HTTP ${res.status}`);
           return;
@@ -264,12 +266,11 @@ export function ExportPreviewDialog({
           (json as ExportDetail).tables.find((t) => t.rowCount > 0)?.name ?? null
         );
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+        if ((err as Error).name === "AbortError") return;
+        setError(err instanceof Error ? err.message : String(err));
       }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => controller.abort();
   }, [exportId]);
 
   const active = useMemo(
@@ -277,14 +278,20 @@ export function ExportPreviewDialog({
     [data, activeTable]
   );
 
-  const loadPage = useCallback(
-    async (table: string, off: number) => {
-      if (!exportId) return;
-      setPageLoading(true);
+  // Unified page loader — 이전 요청이 끝나기 전에 테이블/페이지가 바뀌면
+  // AbortController로 즉시 취소하고 최신 요청만 state에 반영한다.
+  useEffect(() => {
+    if (!activeTable || !exportId) {
+      setPage(null);
+      return;
+    }
+    const controller = new AbortController();
+    setPageLoading(true);
+    (async () => {
       try {
         const res = await fetch(
-          `/api/exports/${exportId}/table/${table}?limit=${PAGE_SIZE}&offset=${off}`,
-          { cache: "no-store" }
+          `/api/exports/${exportId}/table/${activeTable}?limit=${PAGE_SIZE}&offset=${offset}`,
+          { cache: "no-store", signal: controller.signal }
         );
         const json = await res.json();
         if (!res.ok) {
@@ -292,29 +299,30 @@ export function ExportPreviewDialog({
           setPage(null);
           return;
         }
-        setPage({ columns: json.columns, rows: json.rows, total: json.total });
+        setPage({
+          columns: json.columns,
+          rows: json.rows,
+          total: json.total,
+        });
+        setError(null);
       } catch (err) {
+        if ((err as Error).name === "AbortError") return;
         setError(err instanceof Error ? err.message : String(err));
       } finally {
-        setPageLoading(false);
+        if (!controller.signal.aborted) setPageLoading(false);
       }
-    },
-    [exportId]
-  );
+    })();
+    return () => controller.abort();
+  }, [activeTable, offset, exportId]);
 
-  useEffect(() => {
-    if (!activeTable || !exportId) {
-      setPage(null);
-      return;
-    }
+  const selectTable = (name: string) => {
+    if (name === activeTable) return;
+    // 테이블 전환 시 offset을 같은 렌더 사이클에서 batched reset — 이전
+    // 테이블의 offset이 새 테이블에 섞여 들어가 fetch race를 만드는 것을 방지.
+    setActiveTable(name);
     setOffset(0);
-    void loadPage(activeTable, 0);
-  }, [activeTable, exportId, loadPage]);
-
-  useEffect(() => {
-    if (!activeTable || !exportId) return;
-    void loadPage(activeTable, offset);
-  }, [offset, activeTable, exportId, loadPage]);
+    setPage(null);
+  };
 
   const total = page?.total ?? active?.rowCount ?? 0;
   const pageStart = total === 0 ? 0 : offset + 1;
@@ -322,7 +330,7 @@ export function ExportPreviewDialog({
 
   return (
     <Dialog open={exportId !== null} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="w-[min(97vw,1100px)]">
+      <DialogContent className="flex h-[min(90vh,800px)] w-[min(97vw,1100px)] flex-col">
         <DialogHeader>
           <DialogTitle>
             {data ? data.fileName : "미리보기 로딩 중..."}
@@ -362,14 +370,14 @@ export function ExportPreviewDialog({
               </div>
             )}
 
-            <div className="grid gap-3 md:grid-cols-[220px_minmax(0,1fr)]">
-              <ScrollArea className="h-[340px] rounded-md border">
+            <div className="grid min-h-0 flex-1 gap-3 md:grid-cols-[220px_minmax(0,1fr)]">
+              <ScrollArea className="h-full max-h-[60vh] min-h-[280px] rounded-md border">
                 <div className="space-y-0.5 p-1">
                   {data.tables.map((t) => (
                     <button
                       key={t.name}
                       type="button"
-                      onClick={() => setActiveTable(t.name)}
+                      onClick={() => selectTable(t.name)}
                       className={`flex w-full items-center justify-between rounded-sm px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent ${
                         activeTable === t.name ? "bg-accent font-medium" : ""
                       }`}
@@ -437,7 +445,7 @@ export function ExportPreviewDialog({
                     </div>
                   )}
                 </div>
-                <div className="h-[360px] overflow-auto">
+                <div className="h-full max-h-[60vh] min-h-[280px] overflow-auto">
                   {!active ? (
                     <div className="p-6 text-center text-xs text-muted-foreground">
                       (테이블을 선택하세요)

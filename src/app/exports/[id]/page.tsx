@@ -46,7 +46,7 @@ export default async function ExportDetailPage({
       : tables.find((t) => t.rowCount > 0)?.name) ?? tables[0].name;
 
   return (
-    <main className="container mx-auto max-w-[1400px] py-6">
+    <main className="container mx-auto h-screen max-w-[1400px] overflow-y-auto py-6">
       <header className="mb-6 flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <Button asChild variant="ghost" size="icon" className="shrink-0">

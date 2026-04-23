@@ -229,8 +229,8 @@ export function JobQueue() {
   }, [filtered, fetchJobs]);
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,2fr)]">
-      <div className="space-y-4">
+    <div className="grid min-h-0 flex-1 gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,2fr)]">
+      <div className="flex min-h-0 flex-col gap-4 overflow-y-auto pr-1">
         <Dropzone onUploaded={onUploaded} />
         <StatsBar summary={summary} />
 
@@ -274,8 +274,8 @@ export function JobQueue() {
         </Card>
       </div>
 
-      <div className="space-y-3">
-        <div className="flex items-center justify-between gap-2">
+      <div className="flex min-h-0 flex-col gap-3">
+        <div className="flex shrink-0 items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
             <Filter className="h-4 w-4 text-muted-foreground" />
             <div className="flex gap-1">
@@ -392,15 +392,15 @@ export function JobQueue() {
         </div>
 
         {selectMode && (
-          <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+          <div className="shrink-0 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
             <span className="font-medium text-foreground">선택 모드</span> — 완료된
             PDF만 체크박스로 선택할 수 있어요. 선택 후 상단의{" "}
             <span className="font-medium">db3 생성</span> 버튼을 누르세요.
           </div>
         )}
-        <Card>
-          <CardContent className="p-0">
-            <ScrollArea className="h-[calc(100vh-340px)] min-h-[480px]">
+        <Card className="flex min-h-0 flex-1 flex-col">
+          <CardContent className="min-h-0 flex-1 p-0">
+            <ScrollArea className="h-full">
               <div className="space-y-2 p-3">
                 {filtered.length === 0 ? (
                   <div className="flex h-[400px] items-center justify-center text-sm text-muted-foreground">

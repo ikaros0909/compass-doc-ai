@@ -3,8 +3,8 @@ import { FileJson2 } from "lucide-react";
 
 export default function HomePage() {
   return (
-    <main className="container mx-auto max-w-[1400px] py-6">
-      <header className="mb-6 flex items-center justify-between">
+    <main className="container mx-auto flex h-screen max-w-[1400px] flex-col py-6">
+      <header className="mb-6 flex shrink-0 items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
             <FileJson2 className="h-5 w-5" />

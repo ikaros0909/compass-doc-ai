@@ -14,7 +14,7 @@ export default function ExportsPage() {
   const exports = hsbExportsRepo.list(200);
 
   return (
-    <main className="container mx-auto max-w-[1100px] py-6">
+    <main className="container mx-auto h-screen max-w-[1100px] overflow-y-auto py-6">
       <header className="mb-6 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Button asChild variant="ghost" size="icon" className="shrink-0">

@@ -974,12 +974,29 @@ export function previewHsbDb(filePath: string, sampleLimit = 5): TablePreview[] 
   return out;
 }
 
+interface ColumnInfo {
+  name: string;
+  type: string;
+  notnull: number;
+  pk: number;
+}
+
+function readTableInfo(db: Database.Database, table: HsbTableName): ColumnInfo[] {
+  return db.prepare(`PRAGMA table_info(${table})`).all() as ColumnInfo[];
+}
+
 export function queryHsbTable(
   filePath: string,
   table: HsbTableName,
   limit = 100,
   offset = 0
-): { columns: string[]; rows: Array<Record<string, unknown>>; total: number } {
+): {
+  columns: string[];
+  rows: Array<Record<string, unknown>>;
+  total: number;
+  primaryKey: string[];
+  columnTypes: Record<string, string>;
+} {
   if (!HSB_TABLE_NAMES.includes(table)) {
     throw new Error(`Unknown table: ${table}`);
   }
@@ -988,17 +1005,122 @@ export function queryHsbTable(
   }
   const db = new Database(filePath, { readonly: true });
   try {
-    const cols = (db
-      .prepare(`PRAGMA table_info(${table})`)
-      .all() as Array<{ name: string }>).map((c) => c.name);
+    const info = readTableInfo(db, table);
+    const cols = info.map((c) => c.name);
     const total = (db
       .prepare(`SELECT COUNT(*) as c FROM ${table}`)
       .get() as { c: number }).c;
     const rows = db
       .prepare(`SELECT * FROM ${table} LIMIT ? OFFSET ?`)
       .all(limit, offset) as Array<Record<string, unknown>>;
-    return { columns: cols, rows, total };
+    const primaryKey = info
+      .filter((c) => c.pk > 0)
+      .sort((a, b) => a.pk - b.pk)
+      .map((c) => c.name);
+    const columnTypes: Record<string, string> = {};
+    for (const c of info) columnTypes[c.name] = c.type;
+    return { columns: cols, rows, total, primaryKey, columnTypes };
   } finally {
     db.close();
   }
+}
+
+/**
+ * 단일 셀 UPDATE. pkValues 는 행을 식별할 모든 PK 컬럼 값 묶음이어야 한다.
+ * PK 컬럼 자체는 수정 불가 (WHERE 가 깨질 수 있어 위험).
+ */
+export function updateHsbCell(
+  filePath: string,
+  table: HsbTableName,
+  pkValues: Record<string, unknown>,
+  column: string,
+  newValue: unknown
+): { ok: true; updatedRow: Record<string, unknown> } {
+  if (!HSB_TABLE_NAMES.includes(table)) {
+    throw new Error(`Unknown table: ${table}`);
+  }
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`Export file not found: ${filePath}`);
+  }
+
+  const db = new Database(filePath);
+  try {
+    const info = readTableInfo(db, table);
+    const colNames = new Set(info.map((c) => c.name));
+    if (!colNames.has(column)) {
+      throw new Error(`Unknown column: ${column}`);
+    }
+
+    const pkCols = info
+      .filter((c) => c.pk > 0)
+      .sort((a, b) => a.pk - b.pk)
+      .map((c) => c.name);
+
+    if (pkCols.length === 0) {
+      throw new Error(`Table ${table} has no primary key — cannot safely update`);
+    }
+    if (pkCols.includes(column)) {
+      throw new Error(`Cannot edit primary key column: ${column}`);
+    }
+    for (const pk of pkCols) {
+      if (!(pk in pkValues)) {
+        throw new Error(`Missing primary key value: ${pk}`);
+      }
+    }
+
+    // 컬럼 타입에 따라 값 정규화 — 빈 문자열은 INTEGER 컬럼에서 NULL 로.
+    const colInfo = info.find((c) => c.name === column)!;
+    const coerced = coerceValueForColumn(newValue, colInfo);
+
+    const setClause = `"${column}" = ?`;
+    const whereClause = pkCols.map((c) => `"${c}" = ?`).join(" AND ");
+    const stmt = db.prepare(
+      `UPDATE ${table} SET ${setClause} WHERE ${whereClause}`
+    );
+    const result = stmt.run(coerced, ...pkCols.map((c) => pkValues[c] as never));
+    if (result.changes !== 1) {
+      throw new Error(
+        `UPDATE affected ${result.changes} rows (expected 1) — primary key may not match`
+      );
+    }
+
+    const selectCols = info.map((c) => `"${c.name}"`).join(", ");
+    const updatedRow = db
+      .prepare(
+        `SELECT ${selectCols} FROM ${table} WHERE ${whereClause} LIMIT 1`
+      )
+      .get(...pkCols.map((c) => pkValues[c] as never)) as Record<string, unknown>;
+
+    return { ok: true, updatedRow };
+  } finally {
+    db.close();
+  }
+}
+
+function coerceValueForColumn(value: unknown, col: ColumnInfo): unknown {
+  if (value === null || value === undefined) {
+    return col.notnull ? "" : null;
+  }
+  const t = col.type.toUpperCase();
+  if (typeof value === "string") {
+    if (value === "" && !col.notnull) return null;
+    if (/INT/.test(t)) {
+      if (value === "") return col.notnull ? 0 : null;
+      const n = Number(value);
+      if (Number.isNaN(n)) {
+        throw new Error(`'${value}' is not a valid integer for ${col.name}`);
+      }
+      return Math.trunc(n);
+    }
+    if (/REAL|FLOA|DOUB|NUM/.test(t)) {
+      if (value === "") return col.notnull ? 0 : null;
+      const n = Number(value);
+      if (Number.isNaN(n)) {
+        throw new Error(`'${value}' is not a valid number for ${col.name}`);
+      }
+      return n;
+    }
+    return value;
+  }
+  return value;
 }
