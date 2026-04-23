@@ -1,6 +1,6 @@
 # Compass Doc AI
 
-학생부 PDF를 **Drag & Drop**으로 수백 개 일괄 업로드 → [`opendataloader-pdf`](https://github.com/ikaros0909/opendataloader-pdf)로 **순차 JSON 변환** → 목록/상세 뷰어 제공.
+PDF를 **Drag & Drop**으로 수백 개 일괄 업로드 → [`opendataloader-pdf`](https://github.com/ikaros0909/opendataloader-pdf)로 **순차 JSON 변환** → 목록/상세 뷰어 제공.
 
 ## 스택
 
@@ -76,23 +76,14 @@ docker compose up -d --build
 - **순차 처리 고정**: SDK가 JVM 프로세스를 띄우므로 동시 N건은 메모리 리스크. 1건씩 처리해 투명한 진행 표시에 집중.
 - **재시작 복원**: 앱 재시작 시 `processing` 상태였던 작업은 자동으로 `queued`로 리셋.
 - **개인정보 보호**: 업로드/변환 결과 모두 로컬 파일시스템 및 사내 인프라 내에만 보존.
-- **학생부 필드 파싱**은 의도적으로 1차 범위에서 제외 — 원시 JSON 구조를 그대로 보존해 2차 후처리(인적·출결·교과·세특·행동특성 등)가 자유롭게 얹힐 수 있도록 설계.
+- **도메인별 필드 파싱**은 의도적으로 1차 범위에서 제외 — 원시 JSON 구조를 그대로 보존해 2차 후처리가 자유롭게 얹힐 수 있도록 설계.
 
 ## 변환 엔진 / Fallback
 
 `@opendataloader/pdf`(Java 11+)가 사용 가능한 환경에서는 이를 우선 사용해 고품질 구조 JSON을 생성합니다. Java가 없거나 JVM 기동에 실패하면 **`pdfjs-dist` 기반 텍스트 추출 fallback**으로 자동 전환합니다(JSON 페이로드의 `engine: "pdfjs-fallback"` 필드로 구분). Fallback 경로는 좌표 기반 라인 추출만 하므로 테이블 재구성 품질은 떨어집니다 — Docker 배포 환경에서는 반드시 JRE 경로를 타도록 하세요.
 
-## 학생부 파서
-
-`src/lib/studentRecord.ts`가 두 형식(opendataloader 트리, pdfjs fallback)을 모두 소비해 아래 8개 섹션으로 분류합니다:
-
-`인적·학적사항` · `출결상황` · `수상경력` · `자격증 및 인증 취득상황` · `창의적 체험활동상황` · `교과학습발달상황` · `독서활동상황` · `행동특성 및 종합의견`
-
-상세 페이지(`/jobs/[id]`)의 기본 탭이 **학생부 뷰**이며, 메타 정보(학교/발급일/학년·반·번호)를 헤더 카드로 표시합니다.
-
 ## 다음 단계로 열어둔 것들
 
-- 섹션별 필드화 (성적 표 → `{학기, 교과, 과목, 단위, 원점수/평균, 성취도, 석차등급}` 행 배열)
 - 동시 처리 수 설정(`CONCURRENCY` env)
 - 업로드 중복 정책(같은 파일명 스킵/덮어쓰기 토글)
 - CSV 일괄 내보내기

@@ -90,7 +90,7 @@ npm run dist
 
 1. **isomorphic-git 으로 데이터/리소스 파일만 동기화**
    - 코드 변경은 GitHub Releases 로,
-   - 학생부 추출 룰/프롬프트/SQL 같은 *데이터성 파일* 만 git 으로 끌어오는 방식.
+   - 추출 룰/프롬프트/SQL 같은 *데이터성 파일* 만 git 으로 끌어오는 방식.
    - 사용자 PC 에 Git 설치가 필요 없습니다.
 
 2. **portable-git 동봉 + `simple-git` 으로 `git pull`**

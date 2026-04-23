@@ -347,7 +347,7 @@ npm install @radix-ui/react-select
 
 # 검증 후
 npm version minor --no-git-tag-version
-git add -A && git commit -m "feat: 학생부 필터 셀렉터 추가"
+git add -A && git commit -m "feat: 결과 필터 셀렉터 추가"
 git tag v0.2.0 && git push origin main --tags
 ```
 
