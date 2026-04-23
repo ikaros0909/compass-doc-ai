@@ -42,7 +42,10 @@ win:
   target:
     - target: nsis
       arch: [x64]
-  artifactName: "${productName}-Setup-${version}.${ext}"
+  # 버전을 빼서 "/releases/latest/download/Compass-Doc-AI-Setup.exe" 같은
+  # 영구 다운로드 링크를 만들 수 있게 한다. 자동 업데이트는 latest.yml 의
+  # 내부 메타가 결정하므로 파일명 고정과 무관하게 정상 동작.
+  artifactName: "${productName}-Setup.${ext}"
 
 nsis:
   oneClick: false
