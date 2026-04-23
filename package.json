@@ -1,0 +1,66 @@
+{
+  "name": "compass-doc-ai",
+  "version": "0.1.0",
+  "private": true,
+  "description": "학생부 PDF를 로컬에서 JSON으로 변환하는 데스크톱 앱",
+  "author": {
+    "name": "Compass",
+    "email": "ikaros0909@gmail.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ikaros0909/compass-doc-ai.git"
+  },
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "npm run use:node && next dev -p 3300",
+    "build": "next build",
+    "start": "next start -p 3300",
+    "lint": "next lint",
+    "electron:dev": "npm run use:electron && cross-env NODE_ENV=development electron .",
+    "bundle:standalone": "node scripts/bundle-standalone.mjs",
+    "fetch:jre": "node scripts/fetch-jre.mjs",
+    "use:node": "node scripts/ensure-native-abi.mjs node",
+    "use:electron": "node scripts/ensure-native-abi.mjs electron",
+    "rebuild:native": "electron-rebuild -f -w better-sqlite3",
+    "rebuild:node": "npm rebuild better-sqlite3",
+    "dist:prepare": "npm run use:node && npm run build && npm run use:electron && npm run bundle:standalone && npm run fetch:jre",
+    "dist": "npm run dist:prepare && electron-builder --win --x64 -c electron-builder.yml --publish never",
+    "dist:publish": "npm run dist:prepare && electron-builder --win --x64 -c electron-builder.yml --publish always"
+  },
+  "dependencies": {
+    "@opendataloader/pdf": "^1.0.0",
+    "@radix-ui/react-dialog": "^1.1.2",
+    "@radix-ui/react-progress": "^1.1.0",
+    "@radix-ui/react-scroll-area": "^1.2.0",
+    "@radix-ui/react-slot": "^1.1.0",
+    "@radix-ui/react-tabs": "^1.1.1",
+    "@radix-ui/react-tooltip": "^1.1.4",
+    "better-sqlite3": "^11.5.0",
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.1.1",
+    "electron-updater": "^6.3.9",
+    "lucide-react": "^0.454.0",
+    "next": "^15.1.0",
+    "pdfjs-dist": "4.0.379",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-dropzone": "^14.3.5",
+    "tailwind-merge": "^2.5.4",
+    "tailwindcss-animate": "^1.0.7"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.9.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "autoprefixer": "^10.4.20",
+    "@electron/rebuild": "^3.7.0",
+    "cross-env": "^7.0.3",
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.14",
+    "typescript": "^5.6.3"
+  }
+}

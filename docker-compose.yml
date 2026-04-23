@@ -1,0 +1,10 @@
+services:
+  compass-doc-ai:
+    build: .
+    image: compass-doc-ai:latest
+    container_name: compass-doc-ai
+    ports:
+      - "3300:3300"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

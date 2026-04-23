@@ -1,0 +1,55 @@
+appId: ai.compass.docai
+productName: Compass Doc AI
+copyright: Copyright © 2026
+asar: true
+
+# better-sqlite3 는 prepare 단계에서 별도로 electron-rebuild 했다고 가정.
+# electron-builder 가 또 한번 rebuild 시도하면서 .node 파일을 unlink 할 때
+# 잠금(EPERM)이 자주 발생 → 이 단계를 끈다.
+buildDependenciesFromSource: false
+npmRebuild: false
+# Next.js standalone 산출물 / better-sqlite3 native binding 은 asar 밖에서 로드해야 안정적
+asarUnpack:
+  - "resources/next-app/node_modules/better-sqlite3/**/*"
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - "electron/**/*"
+  - "package.json"
+  - "!**/.next${/*}"
+  - "!**/node_modules/.cache${/*}"
+
+# Next.js standalone 산출물 + JRE 를 resources/ 로 복사한다.
+# (build:next-standalone 스크립트에서 미리 .next-standalone 으로 정리됨)
+extraResources:
+  - from: ".next-standalone"
+    to: "next-app"
+    filter: ["**/*"]
+  - from: "jre"
+    to: "jre"
+    filter: ["**/*"]
+
+publish:
+  - provider: github
+    owner: ikaros0909        # ← 본인 GitHub 사용자/조직명으로 변경
+    repo: compass-doc-ai     # ← 실제 저장소 이름으로 변경
+    releaseType: release
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  artifactName: "${productName}-Setup-${version}.${ext}"
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: "Compass Doc AI"
+  uninstallDisplayName: "Compass Doc AI ${version}"
+  deleteAppDataOnUninstall: false
