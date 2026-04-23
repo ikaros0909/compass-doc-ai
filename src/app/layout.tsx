@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Compass Doc AI — 학생부 PDF → JSON 변환",
+  title: "Compass Doc AI — 학생부 PDF → JSON 변환 → db3 생성",
   description:
-    "학생부 PDF를 Drag & Drop으로 일괄 업로드하여 JSON으로 변환하고 목록/상세를 관리합니다.",
+    "학생부 PDF를 Drag & Drop으로 일괄 업로드하여 db3로 변환하고 목록/상세를 관리합니다.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
