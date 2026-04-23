@@ -246,7 +246,7 @@ function buildMenu() {
       submenu: [
         {
           label: "업데이트 확인",
-          click: () => autoUpdater.checkForUpdatesAndNotify().catch(console.error),
+          click: () => manualCheckForUpdates(),
         },
         {
           label: "데이터 폴더 열기",
@@ -270,15 +270,49 @@ function buildMenu() {
 // ---------------------------------------------------------------------------
 // 자동 업데이트 (electron-updater + GitHub Releases)
 // ---------------------------------------------------------------------------
+let updaterLogStream = null;
+let manualCheckInProgress = false;
+
+function logUpdater(line) {
+  const text = `[updater ${new Date().toISOString()}] ${line}\n`;
+  process.stdout.write(text);
+  if (!updaterLogStream) {
+    updaterLogStream = fs.createWriteStream(
+      path.join(getLogDir(), "updater.log"),
+      { flags: "a" }
+    );
+  }
+  updaterLogStream.write(text);
+}
+
 function setupAutoUpdater() {
-  if (isDev) return;
+  if (isDev) {
+    logUpdater("dev mode — auto updater disabled");
+    return;
+  }
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
 
-  autoUpdater.on("update-available", (info) => {
-    console.log(`[updater] update available: ${info.version}`);
-  });
+  // electron-updater 의 내부 로그도 같은 파일로 흘려보냄
+  autoUpdater.logger = {
+    info: (m) => logUpdater(`INFO  ${m}`),
+    warn: (m) => logUpdater(`WARN  ${m}`),
+    error: (m) => logUpdater(`ERROR ${m}`),
+    debug: (m) => logUpdater(`DEBUG ${m}`),
+  };
+
+  autoUpdater.on("checking-for-update", () => logUpdater("checking-for-update"));
+  autoUpdater.on("update-available", (info) =>
+    logUpdater(`update-available: ${info.version}`)
+  );
+  autoUpdater.on("update-not-available", (info) =>
+    logUpdater(`update-not-available (current=${app.getVersion()} latest=${info.version})`)
+  );
+  autoUpdater.on("download-progress", (p) =>
+    logUpdater(`download-progress ${Math.round(p.percent)}%`)
+  );
   autoUpdater.on("update-downloaded", (info) => {
+    logUpdater(`update-downloaded: ${info.version}`);
     dialog
       .showMessageBox({
         type: "info",
@@ -297,12 +331,85 @@ function setupAutoUpdater() {
       });
   });
   autoUpdater.on("error", (err) => {
-    console.error("[updater] error", err);
+    logUpdater(`error: ${err && err.stack ? err.stack : err}`);
   });
 
-  autoUpdater.checkForUpdatesAndNotify().catch((err) => {
-    console.error("[updater] initial check failed", err);
+  autoUpdater.checkForUpdates().catch((err) => {
+    logUpdater(`initial check failed: ${err && err.message ? err.message : err}`);
   });
+}
+
+/**
+ * 메뉴 → "업데이트 확인" 으로 호출. 모든 결과(최신/새버전/실패)를
+ * 즉시 다이얼로그로 표시한다 — 사용자가 "동작했는지" 확신할 수 있게.
+ */
+async function manualCheckForUpdates() {
+  if (isDev) {
+    dialog.showMessageBox({
+      type: "info",
+      title: "업데이트 확인",
+      message: "개발 모드에서는 자동 업데이트가 비활성화됩니다.",
+      detail: "패키지된 빌드(.exe)에서만 동작합니다.",
+    });
+    return;
+  }
+  if (manualCheckInProgress) return;
+  manualCheckInProgress = true;
+  logUpdater(`manual check (current=${app.getVersion()})`);
+
+  try {
+    const result = await autoUpdater.checkForUpdates();
+    if (!result || !result.updateInfo) {
+      throw new Error("checkForUpdates 결과가 비어있습니다.");
+    }
+    const latest = result.updateInfo.version;
+    const current = app.getVersion();
+    if (latest === current || compareSemver(latest, current) <= 0) {
+      await dialog.showMessageBox({
+        type: "info",
+        title: "업데이트 확인",
+        message: "현재 버전이 최신입니다.",
+        detail: `현재 버전: ${current}\n저장소 최신: ${latest}`,
+      });
+    } else {
+      // 업데이트가 발견됨 → 백그라운드에서 다운로드가 시작됐음을 알린다.
+      // 다운로드 완료 다이얼로그는 "update-downloaded" 핸들러가 별도로 띄움.
+      await dialog.showMessageBox({
+        type: "info",
+        title: "업데이트 발견",
+        message: `새 버전 ${latest} 을 다운로드합니다.`,
+        detail:
+          `현재 버전: ${current}\n새 버전: ${latest}\n\n` +
+          "다운로드가 끝나면 재시작 안내 창이 뜹니다.",
+      });
+    }
+  } catch (err) {
+    const detail = err && err.stack ? err.stack : String(err);
+    logUpdater(`manual check failed: ${detail}`);
+    await dialog.showMessageBox({
+      type: "error",
+      title: "업데이트 확인 실패",
+      message: "업데이트 정보를 가져오지 못했습니다.",
+      detail:
+        `${err && err.message ? err.message : err}\n\n` +
+        "GitHub Releases 에 latest.yml 이 업로드돼있는지 확인하세요.\n" +
+        "로그: 도움말 → 로그 폴더 열기 → updater.log",
+    });
+  } finally {
+    manualCheckInProgress = false;
+  }
+}
+
+/** 단순 semver 비교 (prerelease 미고려) — a > b 이면 양수 */
+function compareSemver(a, b) {
+  const pa = String(a).split(/[.+-]/).map((x) => parseInt(x, 10) || 0);
+  const pb = String(b).split(/[.+-]/).map((x) => parseInt(x, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const da = pa[i] ?? 0;
+    const db = pb[i] ?? 0;
+    if (da !== db) return da - db;
+  }
+  return 0;
 }
 
 // ---------------------------------------------------------------------------
