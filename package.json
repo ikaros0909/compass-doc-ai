@@ -1,6 +1,6 @@
 {
   "name": "compass-doc-ai",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "description": "학생부 PDF를 로컬에서 JSON으로 변환하는 데스크톱 앱",
   "author": {
@@ -27,7 +27,9 @@
     "rebuild:node": "npm rebuild better-sqlite3",
     "dist:prepare": "npm run use:node && npm run build && npm run use:electron && npm run bundle:standalone && npm run fetch:jre",
     "dist": "npm run dist:prepare && electron-builder --win --x64 -c electron-builder.yml --publish never",
-    "dist:publish": "npm run dist:prepare && npx --yes dotenv-cli -e .env.local -- electron-builder --win --x64 -c electron-builder.yml --publish always"
+    "dist:signed": "npm run dist:prepare && npx --yes dotenv-cli -e .env.local -- electron-builder --win --x64 -c electron-builder.signing.yml --publish never",
+    "dist:publish": "npm run dist:prepare && npx --yes dotenv-cli -e .env.local -- electron-builder --win --x64 -c electron-builder.yml --publish always",
+    "dist:publish:signed": "npm run dist:prepare && npx --yes dotenv-cli -e .env.local -- electron-builder --win --x64 -c electron-builder.signing.yml --publish always"
   },
   "dependencies": {
     "@opendataloader/pdf": "^1.0.0",

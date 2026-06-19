@@ -96,6 +96,28 @@
   }
 }
 
+/* 내보낸 db3(평문) 알림: 5분간 은은한 앰버 네온 글로우 → 삭제 잊지 않게 */
+@keyframes db3-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 hsl(38 92% 50% / 0);
+    border-color: hsl(38 92% 50% / 0.3);
+  }
+  50% {
+    box-shadow: 0 0 14px 1px hsl(38 92% 50% / 0.42);
+    border-color: hsl(38 92% 50% / 0.7);
+  }
+}
+.db3-glow {
+  /* 2.5s × 120 = 300s(5분) 재생 후 정지 */
+  animation: db3-glow 2.5s ease-in-out 120;
+}
+@media (prefers-reduced-motion: reduce) {
+  .db3-glow {
+    animation: none;
+  }
+}
+
 /* Shimmer bar for active processing */
 .processing-bar {
   background: linear-gradient(

@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+  AlertTriangle,
   Check,
   Database,
   Filter,
@@ -25,7 +26,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { cn, formatTimestamp } from "@/lib/utils";
+import { cn, formatBytes, formatTimestamp } from "@/lib/utils";
 
 type JobFilter = "all" | "active" | "completed" | "failed";
 
@@ -54,6 +55,29 @@ export function JobQueue() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [createOpen, setCreateOpen] = useState(false);
   const [previewId, setPreviewId] = useState<string | null>(null);
+  const [exportsInfo, setExportsInfo] = useState<{ count: number; sizeBytes: number }>(
+    { count: 0, sizeBytes: 0 }
+  );
+
+  const fetchExports = useCallback(async () => {
+    try {
+      const res = await fetch("/api/exports", { cache: "no-store" });
+      if (!res.ok) return;
+      const data = (await res.json()) as {
+        exports: Array<{ sizeBytes: number }>;
+      };
+      setExportsInfo({
+        count: data.exports.length,
+        sizeBytes: data.exports.reduce((s, e) => s + (e.sizeBytes ?? 0), 0),
+      });
+    } catch {
+      /* 무시 */
+    }
+  }, []);
+
+  useEffect(() => {
+    void fetchExports();
+  }, [fetchExports]);
 
   const fetchJobs = useCallback(async () => {
     const url = activeBatch ? `/api/jobs?batchId=${activeBatch}` : "/api/jobs";
@@ -319,8 +343,8 @@ export function JobQueue() {
 
           {/* 본문: 좁은 배치 사이드바 + 넓은 목록 */}
           <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(200px,240px)_minmax(0,1fr)]">
-            <aside className="hidden min-h-0 lg:block">
-              <Card className="flex h-full min-h-0 flex-col">
+            <aside className="hidden min-h-0 lg:flex lg:flex-col lg:gap-4">
+              <Card className="flex min-h-0 flex-1 flex-col">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-sm">최근 배치</CardTitle>
                 </CardHeader>
@@ -355,6 +379,43 @@ export function JobQueue() {
                         />
                       ))}
                     </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* 내보낸 db3 현황 — 평문 파일이므로 사용 후 삭제 안내 */}
+              <Card className="shrink-0">
+                <CardContent className="p-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">내보낸 db3</span>
+                    <Link
+                      href="/exports"
+                      className="text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+                    >
+                      관리 →
+                    </Link>
+                  </div>
+                  {exportsInfo.count > 0 ? (
+                    <div
+                      key={exportsInfo.count}
+                      className="db3-glow mt-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-2.5"
+                    >
+                      <p className="flex items-center gap-1.5 text-[11px] font-semibold text-amber-700 dark:text-amber-400">
+                        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                        평문 파일 {exportsInfo.count}개 · {formatBytes(exportsInfo.sizeBytes)}
+                      </p>
+                      <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                        db3는 사용을 위해 암호화하지 않습니다. 다른 곳에 옮겨 쓴 뒤{" "}
+                        <Link href="/exports" className="font-medium text-foreground underline-offset-2 hover:underline">
+                          관리
+                        </Link>
+                        에서 꼭 삭제하세요.
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+                      내보낸 파일이 없습니다. db3는 평문으로 생성되니 사용 후 삭제하세요.
+                    </p>
                   )}
                 </CardContent>
               </Card>
@@ -581,6 +642,7 @@ export function JobQueue() {
           setPreviewId(exportId);
           clearSelection();
           setSelectMode(false);
+          void fetchExports();
         }}
       />
       <ExportPreviewDialog
