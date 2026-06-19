@@ -10,7 +10,7 @@
  *   5) electron-updater 로 GitHub Releases 자동 업데이트
  */
 
-const { app, BrowserWindow, shell, dialog, Menu } = require("electron");
+const { app, BrowserWindow, shell, dialog, Menu, ipcMain } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
 const net = require("node:net");
@@ -202,8 +202,11 @@ function createWindow() {
     backgroundColor: "#0b0d12",
     webPreferences: {
       contextIsolation: true,
-      sandbox: true,
+      // sandbox 활성 상태에서는 preload 의 require() 가 제한되므로
+      // contextBridge 만 쓰는 한 sandbox 를 꺼도 안전하다.
+      sandbox: false,
       nodeIntegration: false,
+      preload: path.join(__dirname, "preload.js"),
     },
   });
 
@@ -273,6 +276,35 @@ function buildMenu() {
 let updaterLogStream = null;
 let manualCheckInProgress = false;
 
+function sendToRenderer(channel, payload) {
+  if (mainWindow && mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
+    try {
+      mainWindow.webContents.send(channel, payload);
+    } catch {
+      /* 창이 막 닫히는 중일 수 있음 — 무시 */
+    }
+  }
+}
+
+function formatBytes(n) {
+  if (!Number.isFinite(n) || n <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  let i = 0;
+  let v = n;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v.toFixed(v >= 100 ? 0 : v >= 10 ? 1 : 2)} ${units[i]}`;
+}
+
+// 렌더러에서 "지금 재시작" 버튼을 누를 때 사용
+ipcMain.handle("updater:quit-and-install", () => {
+  app.isQuiting = true;
+  autoUpdater.quitAndInstall();
+});
+ipcMain.handle("updater:check", () => manualCheckForUpdates());
+
 function logUpdater(line) {
   const text = `[updater ${new Date().toISOString()}] ${line}\n`;
   process.stdout.write(text);
@@ -301,18 +333,42 @@ function setupAutoUpdater() {
     debug: (m) => logUpdater(`DEBUG ${m}`),
   };
 
-  autoUpdater.on("checking-for-update", () => logUpdater("checking-for-update"));
-  autoUpdater.on("update-available", (info) =>
-    logUpdater(`update-available: ${info.version}`)
-  );
-  autoUpdater.on("update-not-available", (info) =>
-    logUpdater(`update-not-available (current=${app.getVersion()} latest=${info.version})`)
-  );
-  autoUpdater.on("download-progress", (p) =>
-    logUpdater(`download-progress ${Math.round(p.percent)}%`)
-  );
+  autoUpdater.on("checking-for-update", () => {
+    logUpdater("checking-for-update");
+    sendToRenderer("updater:checking", null);
+  });
+  autoUpdater.on("update-available", (info) => {
+    logUpdater(`update-available: ${info.version}`);
+    sendToRenderer("updater:available", { version: info.version });
+    if (mainWindow) mainWindow.setProgressBar(0); // 작업표시줄 진행률 시작 (0%)
+  });
+  autoUpdater.on("update-not-available", (info) => {
+    logUpdater(
+      `update-not-available (current=${app.getVersion()} latest=${info.version})`
+    );
+    sendToRenderer("updater:not-available", {
+      current: app.getVersion(),
+      latest: info.version,
+    });
+  });
+  autoUpdater.on("download-progress", (p) => {
+    const percent = Math.max(0, Math.min(100, p.percent ?? 0));
+    logUpdater(
+      `download-progress ${percent.toFixed(1)}% ` +
+        `(${formatBytes(p.transferred)}/${formatBytes(p.total)} @ ${formatBytes(p.bytesPerSecond)}/s)`
+    );
+    sendToRenderer("updater:progress", {
+      percent,
+      transferred: p.transferred,
+      total: p.total,
+      bytesPerSecond: p.bytesPerSecond,
+    });
+    if (mainWindow) mainWindow.setProgressBar(percent / 100);
+  });
   autoUpdater.on("update-downloaded", (info) => {
     logUpdater(`update-downloaded: ${info.version}`);
+    sendToRenderer("updater:downloaded", { version: info.version });
+    if (mainWindow) mainWindow.setProgressBar(-1); // 작업표시줄 진행률 종료
     dialog
       .showMessageBox({
         type: "info",
@@ -332,6 +388,10 @@ function setupAutoUpdater() {
   });
   autoUpdater.on("error", (err) => {
     logUpdater(`error: ${err && err.stack ? err.stack : err}`);
+    sendToRenderer("updater:error", {
+      message: err && err.message ? err.message : String(err),
+    });
+    if (mainWindow) mainWindow.setProgressBar(-1);
   });
 
   autoUpdater.checkForUpdates().catch((err) => {
@@ -365,24 +425,17 @@ async function manualCheckForUpdates() {
     const latest = result.updateInfo.version;
     const current = app.getVersion();
     if (latest === current || compareSemver(latest, current) <= 0) {
+      // "최신입니다" 는 화면 하단 토스트로도 표시되지만, 사용자가 메뉴를
+      // 직접 눌렀을 때는 명시적 다이얼로그도 함께 띄워 확실히 알린다.
       await dialog.showMessageBox({
         type: "info",
         title: "업데이트 확인",
         message: "현재 버전이 최신입니다.",
         detail: `현재 버전: ${current}\n저장소 최신: ${latest}`,
       });
-    } else {
-      // 업데이트가 발견됨 → 백그라운드에서 다운로드가 시작됐음을 알린다.
-      // 다운로드 완료 다이얼로그는 "update-downloaded" 핸들러가 별도로 띄움.
-      await dialog.showMessageBox({
-        type: "info",
-        title: "업데이트 발견",
-        message: `새 버전 ${latest} 을 다운로드합니다.`,
-        detail:
-          `현재 버전: ${current}\n새 버전: ${latest}\n\n` +
-          "다운로드가 끝나면 재시작 안내 창이 뜹니다.",
-      });
     }
+    // 새 버전이 있으면 별도 다이얼로그 없이 즉시 다운로드 시작 — 화면 하단
+    // 토스트가 진행률(%, 속도, 남은 시간)을 실시간 표시. 완료되면 재시작 안내.
   } catch (err) {
     const detail = err && err.stack ? err.stack : String(err);
     logUpdater(`manual check failed: ${detail}`);

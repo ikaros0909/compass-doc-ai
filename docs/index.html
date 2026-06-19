@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Compass Doc AI — 설치</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #0b0d12;
+    --fg: #e6e8ee;
+    --muted: #8b94a7;
+    --accent: #5b8def;
+    --card: #141821;
+    --border: #232938;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f7f8fa;
+      --fg: #14171f;
+      --muted: #5a6478;
+      --card: #ffffff;
+      --border: #e3e6ec;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+    color: var(--fg);
+    font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI",
+      "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+    padding: 24px;
+  }
+  .card {
+    width: 100%;
+    max-width: 560px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 36px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, .15);
+  }
+  h1 { margin: 0 0 6px; font-size: 24px; letter-spacing: -.01em; }
+  p { margin: 6px 0; color: var(--muted); }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    margin: 18px 0 6px;
+    padding: 12px 22px;
+    background: var(--accent);
+    color: #fff;
+    text-decoration: none;
+    border-radius: 8px;
+    font-weight: 600;
+    transition: opacity .15s;
+  }
+  .btn:hover { opacity: .9; }
+  .meta {
+    margin-top: 14px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  ol {
+    margin: 18px 0 0;
+    padding-left: 20px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  ol li { margin: 4px 0; }
+  .warn {
+    margin-top: 18px;
+    padding: 12px 14px;
+    border: 1px solid #d97706;
+    border-radius: 8px;
+    background: rgba(217, 119, 6, .08);
+    color: #d97706;
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+</style>
+</head>
+<body>
+<main class="card">
+  <h1>Compass Doc AI</h1>
+  <p>학생부 PDF를 일괄 업로드해 JSON / db3 로 변환하는 Windows 데스크톱 앱.</p>
+
+  <a class="btn"
+     href="https://github.com/ikaros0909/compass-doc-ai/releases/latest/download/Compass-Doc-AI-Setup.exe"
+     download>
+    ⬇ Windows 설치 파일 다운로드
+  </a>
+  <div class="meta">Windows 10/11 (64-bit) · 약 100 MB · 별도 Java 설치 불필요</div>
+
+  <ol>
+    <li>위 버튼을 클릭해 <code>Setup.exe</code> 를 받습니다.</li>
+    <li>받은 파일을 더블클릭해 설치를 시작합니다.</li>
+    <li>"Windows의 PC 보호" 경고가 뜨면
+        <strong>추가 정보 → 실행</strong> 을 클릭합니다.</li>
+    <li>설치 마법사 안내대로 진행합니다.</li>
+    <li>바탕화면 또는 시작메뉴의 "Compass Doc AI" 로 실행합니다.</li>
+  </ol>
+
+  <div class="warn">
+    SmartScreen 경고는 코드 서명 인증서가 없어서 표시되는 정상적인 안내입니다.
+    설치 파일은 GitHub 의 공식 릴리스 페이지에서 직접 받습니다.
+  </div>
+</main>
+<script>
+  // 페이지 로드 시 자동으로 다운로드 시작 (사용자가 링크를 못 찾는 경우 방지)
+  // 원치 않으면 아래 줄을 주석 처리하세요.
+  setTimeout(() => {
+    location.href = document.querySelector(".btn").href;
+  }, 1200);
+</script>
+</body>
+</html>

@@ -11,6 +11,7 @@ import { JsonTreeViewer } from "@/components/JsonTreeViewer";
 import { StudentRecordView } from "@/components/StudentRecordView";
 import { parseStudentRecord } from "@/lib/studentRecord";
 import { formatBytes, formatDuration, formatTimestamp } from "@/lib/utils";
+import type { ConverterEngine, ConvertDiagnostics } from "@/types/job";
 
 export const dynamic = "force-dynamic";
 
@@ -68,6 +69,9 @@ export default async function JobDetailPage({
                   reason={job.fallbackReason}
                   json={json}
                 />
+              )}
+              {job.diagnostics && (
+                <DiagnosticsNotice diagnostics={job.diagnostics} />
               )}
               {job.error && (
                 <div className="mt-3 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
@@ -138,7 +142,7 @@ function EngineNotice({
   reason,
   json,
 }: {
-  engine: "opendataloader-pdf" | "pdfjs-fallback";
+  engine: ConverterEngine;
   reason: string | null;
   json: { parsed: unknown } | null;
 }) {
@@ -150,16 +154,19 @@ function EngineNotice({
     return typeof r === "string" ? r : null;
   })();
 
-  if (engine === "opendataloader-pdf") {
+  if (engine !== "pdfjs-fallback") {
+    const hybrid = engine === "opendataloader-pdf-hybrid";
     return (
       <div className="mt-3 flex items-center gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/5 p-3 text-xs">
         <Cpu className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
         <div>
           <span className="font-medium text-emerald-700 dark:text-emerald-300">
-            opendataloader-pdf
+            {hybrid ? "opendataloader hybrid + OCR" : "opendataloader-pdf"}
           </span>
           <span className="ml-2 text-muted-foreground">
-            Java 엔진으로 변환된 고품질 구조 JSON입니다.
+            {hybrid
+              ? "Java 엔진 + Python(docling) 백엔드로 OCR/표 인식까지 처리된 구조 JSON입니다."
+              : "Java 엔진으로 변환된 고품질 구조 JSON입니다."}
           </span>
         </div>
       </div>
@@ -189,6 +196,73 @@ function EngineNotice({
         )}
       </div>
     </div>
+  );
+}
+
+function DiagnosticsNotice({
+  diagnostics: d,
+}: {
+  diagnostics: ConvertDiagnostics;
+}) {
+  const pdf = d.pdf;
+  const topNodes = d.nodeTypes
+    ? Object.entries(d.nodeTypes)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 6)
+        .map(([k, v]) => `${k}:${v}`)
+        .join("  ")
+    : null;
+
+  return (
+    <details className="mt-3 rounded-md border border-border bg-muted/30 p-3 text-xs">
+      <summary className="cursor-pointer font-medium text-foreground">
+        변환 진단 (엔진 선택 근거)
+      </summary>
+      <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-muted-foreground">
+        {pdf && (
+          <>
+            <dt>PDF</dt>
+            <dd>
+              {pdf.pageCount ?? "?"}쪽 · 텍스트레이어{" "}
+              {pdf.hasTextLayer === null ? "?" : pdf.hasTextLayer ? "있음" : "없음"}
+              {pdf.encrypted ? " · 암호화" : ""}
+            </dd>
+            <dt>출처</dt>
+            <dd className="break-all">
+              producer={JSON.stringify(pdf.producer)} creator=
+              {JSON.stringify(pdf.creator)}
+            </dd>
+          </>
+        )}
+        <dt>모드</dt>
+        <dd>
+          hybrid={d.hybridMode} · structTree={String(d.structTree)}
+        </dd>
+        <dt>텍스트</dt>
+        <dd>{d.textLength === null ? "?" : `${d.textLength}자`}</dd>
+        {d.outputFile && (
+          <>
+            <dt>출력</dt>
+            <dd className="break-all">{d.outputFile}</dd>
+          </>
+        )}
+        {topNodes && (
+          <>
+            <dt>노드</dt>
+            <dd className="break-all">{topNodes}</dd>
+          </>
+        )}
+      </dl>
+      {d.notes.length > 0 && (
+        <ul className="mt-2 list-disc space-y-0.5 pl-4 text-muted-foreground">
+          {d.notes.map((n, i) => (
+            <li key={i} className="break-all">
+              {n}
+            </li>
+          ))}
+        </ul>
+      )}
+    </details>
   );
 }
 

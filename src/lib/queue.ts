@@ -38,10 +38,8 @@ async function runLoop() {
     const t0 = Date.now();
 
     try {
-      const { jsonPath, engine, fallbackReason } = await convertPdfToJson(
-        next.pdfPath,
-        next.storedName
-      );
+      const { jsonPath, engine, fallbackReason, diagnostics } =
+        await convertPdfToJson(next.pdfPath, next.storedName);
       stopProgressTicker(progressTicker);
       const completedAt = new Date().toISOString();
       const durationMs = Date.now() - t0;
@@ -51,7 +49,8 @@ async function runLoop() {
         completedAt,
         durationMs,
         engine,
-        fallbackReason
+        fallbackReason,
+        diagnostics
       );
       console.log(
         `[queue] job ${next.id.slice(0, 8)} "${next.originalName}" ` +

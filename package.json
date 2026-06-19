@@ -1,6 +1,6 @@
 {
   "name": "compass-doc-ai",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "학생부 PDF를 로컬에서 JSON으로 변환하는 데스크톱 앱",
   "author": {
@@ -13,9 +13,10 @@
   },
   "main": "electron/main.js",
   "scripts": {
-    "dev": "npm run use:node && next dev -p 3300",
+    "dev": "npm run use:node && node scripts/run-next.mjs dev",
     "build": "next build",
-    "start": "next start -p 3300",
+    "start": "node scripts/run-next.mjs start",
+    "start:standalone": "node .next/standalone/server.js",
     "lint": "next lint",
     "electron:dev": "npm run use:electron && cross-env NODE_ENV=development electron .",
     "bundle:standalone": "node scripts/bundle-standalone.mjs",

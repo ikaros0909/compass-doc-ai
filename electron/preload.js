@@ -1,3 +1,26 @@
-// 현재 UI 는 일반 웹앱처럼 동작하므로 preload 에서 노출할 API 는 없다.
-// 향후 네이티브 파일 다이얼로그/트레이 연동을 추가할 때 contextBridge 로
-// 안전하게 expose 한다.
+const { contextBridge, ipcRenderer } = require("electron");
+
+/**
+ * 렌더러(웹 UI)에서 사용 가능한 안전한 업데이트 API.
+ * window.compassUpdater.onProgress(cb) 등으로 진행률을 구독한다.
+ */
+const channels = [
+  "updater:checking",
+  "updater:available",
+  "updater:not-available",
+  "updater:progress",
+  "updater:downloaded",
+  "updater:error",
+];
+
+contextBridge.exposeInMainWorld("compassUpdater", {
+  on: (event, listener) => {
+    const channel = `updater:${event}`;
+    if (!channels.includes(channel)) return () => {};
+    const wrapped = (_e, payload) => listener(payload);
+    ipcRenderer.on(channel, wrapped);
+    return () => ipcRenderer.removeListener(channel, wrapped);
+  },
+  checkNow: () => ipcRenderer.invoke("updater:check"),
+  quitAndInstall: () => ipcRenderer.invoke("updater:quit-and-install"),
+});

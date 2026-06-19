@@ -64,6 +64,7 @@ export async function POST(request: Request) {
       error: null,
       engine: null,
       fallbackReason: null,
+      diagnostics: null,
       createdAt,
       startedAt: null,
       completedAt: null,

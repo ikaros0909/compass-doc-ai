@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { UpdaterToast } from "@/components/UpdaterToast";
 
 export const metadata: Metadata = {
   title: "Compass Doc AI — 학생부 PDF → JSON 변환 → db3 생성",
@@ -10,7 +11,10 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ko" suppressHydrationWarning>
-      <body className="h-screen overflow-hidden bg-background antialiased">{children}</body>
+      <body className="h-screen overflow-hidden bg-background antialiased">
+        {children}
+        <UpdaterToast />
+      </body>
     </html>
   );
 }

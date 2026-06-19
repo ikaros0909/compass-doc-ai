@@ -32,6 +32,12 @@ const ENGINE_META: Record<
     icon: <Cpu className="h-3 w-3" />,
     title: "Java 엔진으로 변환 — 고품질 구조 JSON",
   },
+  "opendataloader-pdf-hybrid": {
+    label: "opendataloader hybrid + OCR",
+    variant: "success",
+    icon: <Cpu className="h-3 w-3" />,
+    title: "Java 엔진 + Python(docling-fast) 백엔드로 OCR/표 인식 강화 (이미지 PDF 지원)",
+  },
   "pdfjs-fallback": {
     label: "pdfjs fallback",
     variant: "warning",

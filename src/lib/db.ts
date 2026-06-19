@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { ensureDataDirs, paths } from "./paths";
 import type {
   BatchSummary,
+  ConvertDiagnostics,
   ConverterEngine,
   JobRecord,
   JobStatus,
@@ -32,6 +33,7 @@ export const db =
         error TEXT,
         engine TEXT,
         fallback_reason TEXT,
+        diagnostics TEXT,
         created_at TEXT NOT NULL,
         started_at TEXT,
         completed_at TEXT,
@@ -66,11 +68,23 @@ export const db =
     if (!columns.some((c) => c.name === "fallback_reason")) {
       instance.exec(`ALTER TABLE jobs ADD COLUMN fallback_reason TEXT`);
     }
+    if (!columns.some((c) => c.name === "diagnostics")) {
+      instance.exec(`ALTER TABLE jobs ADD COLUMN diagnostics TEXT`);
+    }
     return instance;
   })();
 
 if (process.env.NODE_ENV !== "production") {
   globalForDb.__compassDb = db;
+}
+
+function parseDiagnostics(raw: string | null): ConvertDiagnostics | null {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as ConvertDiagnostics;
+  } catch {
+    return null;
+  }
 }
 
 function rowToJob(row: Record<string, unknown>): JobRecord {
@@ -88,6 +102,7 @@ function rowToJob(row: Record<string, unknown>): JobRecord {
     error: (row.error as string | null) ?? null,
     engine: (row.engine as ConverterEngine | null) ?? null,
     fallbackReason: (row.fallback_reason as string | null) ?? null,
+    diagnostics: parseDiagnostics(row.diagnostics as string | null),
     createdAt: row.created_at as string,
     startedAt: (row.started_at as string | null) ?? null,
     completedAt: (row.completed_at as string | null) ?? null,
@@ -181,21 +196,41 @@ export const jobsRepo = {
     completedAt: string,
     durationMs: number,
     engine: ConverterEngine,
-    fallbackReason: string | null
+    fallbackReason: string | null,
+    diagnostics: ConvertDiagnostics | null
   ) {
     db.prepare(
       `UPDATE jobs SET status = 'completed', progress = 100, json_path = ?,
          completed_at = ?, duration_ms = ?, engine = ?, fallback_reason = ?,
-         error = NULL
+         diagnostics = ?, error = NULL
        WHERE id = ?`
-    ).run(jsonPath, completedAt, durationMs, engine, fallbackReason, id);
+    ).run(
+      jsonPath,
+      completedAt,
+      durationMs,
+      engine,
+      fallbackReason,
+      diagnostics ? JSON.stringify(diagnostics) : null,
+      id
+    );
   },
 
-  markFailed(id: string, error: string, completedAt: string) {
+  markFailed(
+    id: string,
+    error: string,
+    completedAt: string,
+    diagnostics: ConvertDiagnostics | null = null
+  ) {
     db.prepare(
-      `UPDATE jobs SET status = 'failed', completed_at = ?, error = ?
+      `UPDATE jobs SET status = 'failed', completed_at = ?, error = ?,
+         diagnostics = ?
        WHERE id = ?`
-    ).run(completedAt, error, id);
+    ).run(
+      completedAt,
+      error,
+      diagnostics ? JSON.stringify(diagnostics) : null,
+      id
+    );
   },
 
   delete(id: string) {
