@@ -335,6 +335,42 @@ sudo lsof -i :3300
    └─ ③ 그래도 비면 pdfjs 폴백 (사실상 텍스트 없음 안내)
 ```
 
+> **언제 필요한가**: 디지털 PDF 라도 **정부24 발급 학생부**처럼 표가 조밀한 서식은
+> Java 단독 추출이 교과 성적표의 과목·점수를 뭉개버린다. hybrid 를 켜면 docling 이
+> 표를 과목당 한 행으로 인식해 SubjectScore/AttendingSchool 등 db3 테이블이 채워진다.
+> (정부24 서식 자동 인식·파싱은 `src/lib/studentRecord.ts` 의 gov24 분기에서 처리.)
+
+### 백엔드 설치 — Windows (로컬 개발/데스크톱)
+
+```powershell
+# 1) Python 3.12 설치 (winget). 기존 파이썬과 별개로 설치됨.
+winget install --id Python.Python.3.12 -e --scope user
+
+# 2) 전용 venv + 패키지 설치 (docling/torch 포함, 수 GB·수십 분)
+py -3.12 -m venv D:\DevRoot\venv-odl-hybrid
+D:\DevRoot\venv-odl-hybrid\Scripts\python -m pip install -U "opendataloader-pdf[hybrid]"
+
+# 3) 백엔드 실행 (편의 스크립트 제공)
+powershell -ExecutionPolicy Bypass -File scripts\start-hybrid-backend.ps1
+#   - venv 경로가 다르면:  ... -File scripts\start-hybrid-backend.ps1 -VenvDir <경로>
+#   - CUDA GPU 가 있으면:   ... -Device cuda   (CPU 는 19페이지에 ~7~8분, GPU 는 수배 빠름)
+```
+
+앱 연동(개발):
+```powershell
+# .env.local 에 추가 (dev 모드 `npm run dev` 에서 자동 로드)
+#   COMPASS_HYBRID_URL=http://127.0.0.1:5002
+#   COMPASS_HYBRID_BACKEND=docling-fast
+#   COMPASS_HYBRID_TIMEOUT_MS=300000
+npm run dev   # → http://localhost:3300 에서 PDF 업로드/재변환
+```
+
+> 패키지(.exe) 앱은 `.env.local` 을 읽지 않는다. 이 경우 **OS 사용자 환경변수**로
+> `COMPASS_HYBRID_URL=http://127.0.0.1:5002` 를 등록한 뒤 앱을 실행해야 한다.
+>
+> 콘솔이 cp949 인 환경에서 유니코드 로그로 백엔드가 죽으면 `PYTHONIOENCODING=utf-8`
+> 를 설정한다(편의 스크립트는 자동 설정).
+
 ### 백엔드 설치 (Ubuntu/CentOS, 같은 GPU 서버 또는 별도 호스트)
 
 ```bash

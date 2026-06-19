@@ -394,8 +394,11 @@ function parseAchievement(v: string): { achievement: string; studentCount: strin
   if (!v) return { achievement: "", studentCount: "" };
   if (v === "P") return { achievement: "P", studentCount: "" };
   const m = v.match(/^([A-Z])\((\d+)\)$/);
-  if (!m) return { achievement: v, studentCount: "" };
-  return { achievement: m[1], studentCount: m[2] };
+  if (m) return { achievement: m[1], studentCount: m[2] };
+  // 정부24 일반 과목: 성취도 글자 없이 수강자수만 "(249)" 형태로 들어온다.
+  const c = v.match(/^\((\d+)\)$/);
+  if (c) return { achievement: "", studentCount: c[1] };
+  return { achievement: v, studentCount: "" };
 }
 
 // -------------------------------------------------------------------------

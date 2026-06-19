@@ -29,6 +29,7 @@ export type SectionId =
   | "attendance"
   | "awards"
   | "certificates"
+  | "career"
   | "activities"
   | "volunteer"
   | "grades"
@@ -789,8 +790,10 @@ function splitSpecialNoteEntries(
 }
 
 function parseSpecialNotesTable(rawLines: string[]): StructuredTable | null {
-  const gradeRe = /^\[([123])학년\]/;
-  const sectionHeaderRe = /^과목세부능력및특기사항/;
+  const gradeRe = /^\[\s*([123])\s*학년\s*\]/;
+  // hybrid(docling)는 "과목" 라벨을 별도 셀로 빼 헤더가 "세부능력및특기사항"만 남는다.
+  // "과목" 접두어 유무와 무관하게 매칭(NEIS "과목세부능력…" 도 포함).
+  const sectionHeaderRe = /세부능력및특기사항/;
   const blockMarkerRe = /^<[^>]+>$/;
   const pageHeaderRe = /^반\s*번호\s*성명/;
 
@@ -923,7 +926,9 @@ function buildSections(buckets: Bucket[]): RecordSection[] {
  * 완결되지 않은 라인은 다음 라인과 이어 붙인다.
  */
 function parseAwardsTable(rawLines: string[]): StructuredTable | null {
-  const dateRe = /\d{4}\.\d{1,2}\.\d{1,2}\./;
+  // 수상연월일: NEIS 는 "2012.05.15." (끝 점), 정부24 는 "2012.05.15" (끝 점 없음).
+  // 끝 점을 optional 로 둬 두 서식 모두 매칭한다.
+  const dateRe = /\d{4}\.\d{1,2}\.\d{1,2}\.?/;
   const yearSemRe = /^\s*(\d)\s+(\d)\s*$/;
   const isHeader = (l: string) =>
     /^학년$|^\(학기\)$|수\s*상\s*명|등급\s*\(위\)|수상연월일|수여기관|참가대상|\(참가인원\)/.test(
@@ -2110,6 +2115,374 @@ function collectGradesTablesWithYear(root: unknown): Array<{
   return out;
 }
 
+/**
+ * 정부24 발급 "학교생활세부사항기록부(학교생활기록부 II)" 서식 대응.
+ *
+ * 표준 NEIS 서식과 달리:
+ *   - 섹션 라벨(1.인적사항 / 2.학적 사항 / …)이 좌측 사이드바 목차로 **데이터보다
+ *     앞서 묶음으로** 방출된다. 따라서 라벨→내용 순차 버킷팅(splitIntoBuckets)이
+ *     모든 데이터를 마지막 라벨 버킷으로 빨아들인다.
+ *   - 인적/학적이 분리되고, "진로희망사항" 섹션이 추가되며, 자격증이 "자격중"으로
+ *     오인쇄되는 등 라벨 텍스트 자체가 다르다.
+ *
+ * 대응: 사이드바 목차 라벨/페이지 푸터를 버리고, **각 섹션 데이터 표의 헤더 마커**를
+ * 앵커로 삼아 순방향(섹션 순서 고정)으로만 전환하며 라인을 분배한다. 데이터 표는
+ * 섹션 순서대로 등장하므로 rank 가 증가하는 방향으로만 전환하면 안정적으로 갈린다.
+ */
+const GOV24_MARKERS: Array<{ id: SectionId; title: string; re: RegExp }> = [
+  { id: "personal", title: "인적·학적사항", re: /주민등록번호|성명\s*:/ },
+  { id: "attendance", title: "출결상황", re: /수업일수/ },
+  { id: "awards", title: "수상경력", re: /수상명/ },
+  { id: "certificates", title: "자격증 및 인증 취득상황", re: /명칭또는종류/ },
+  { id: "career", title: "진로희망사항", re: /특기또는흥미|진로\s*희망$/ },
+  { id: "activities", title: "창의적 체험활동상황", re: /창의적체험활동/ },
+  { id: "grades", title: "교과학습발달상황", re: /^\[\d+학년\]|세부능력및특기사항/ },
+  { id: "reading", title: "독서활동상황", re: /과목또는영역/ },
+  { id: "behavior", title: "행동특성 및 종합의견", re: /행동특성/ },
+];
+
+// 좌측 사이드바 목차 라벨(섹션 구분자가 아니라 네비게이션). 데이터와 분리해 버린다.
+const GOV24_SECTION_LABELS =
+  /^\d+\s*\.?\s*(인적사항|학적\s*사항|출결상황|수상경력|자격[증중].*인증|진로희망사항|창의적\s*체험활동상황|교과학습발달상황|독서활동상황|행동특성)/;
+
+function isGov24Format(json: unknown, lines: string[]): boolean {
+  if (json && typeof json === "object") {
+    const t = (json as Record<string, unknown>).title;
+    if (typeof t === "string" && /정부\s*24|생활기록부\s*증명/.test(t)) return true;
+  }
+  // 사이드바에 인적사항/학적사항이 별도 라벨로 분리돼 나오면 이 서식.
+  const compact = lines.map((l) => l.replace(/\s+/g, ""));
+  const hasPersonal = compact.some((c) => /^\d+\.?인적사항$/.test(c));
+  const hasHakjeok = compact.some((c) => /^\d+\.?학적사항$/.test(c));
+  return hasPersonal && hasHakjeok;
+}
+
+// 매 페이지 반복되는 푸터/증명 도장 라인 — 섹션 본문이 아니므로 제거.
+function isGov24Footer(line: string): boolean {
+  const l = line.trim();
+  return (
+    /^반\s*\d+\s*번호\s*\d+\s*이름/.test(l) ||
+    /^[가-힯]+(?:고등학교|중학교|초등학교)\s+\d{4}년\s*\d+월/.test(l) ||
+    /^문서확인번호/.test(l) ||
+    /^정부\s*24$/.test(l) ||
+    /^발급번호\s*:/.test(l) ||
+    /^위\s*사람의\s*학교생활기록부/.test(l)
+  );
+}
+
+// 배경 이미지에서 새어 나온 깨진 글리프(■ 등)만으로 이뤄진 라인 제거.
+function isGarbageLine(line: string): boolean {
+  const hangul = (line.match(/[가-힯]/g) || []).length;
+  const junk = (line.match(/[■●▲◆□※�]/g) || []).length;
+  return junk >= 3 && hangul < junk;
+}
+
+function splitGov24Sections(lines: string[]): Bucket[] {
+  let current: Bucket = { id: "other", title: "기타", lines: [] };
+  let currentRank = -1;
+  const buckets: Bucket[] = [current];
+
+  for (const raw of lines) {
+    const line = raw.replace(/\s+/g, " ").trim();
+    if (!line) continue;
+    if (GOV24_SECTION_LABELS.test(line)) continue; // 사이드바 목차 라벨 제거
+    if (isGov24Footer(line)) continue;
+    if (isGarbageLine(line)) continue;
+
+    const compact = line.replace(/\s+/g, "");
+    let switched = false;
+    for (let r = currentRank + 1; r < GOV24_MARKERS.length; r += 1) {
+      if (GOV24_MARKERS[r].re.test(compact) || GOV24_MARKERS[r].re.test(line)) {
+        current = { id: GOV24_MARKERS[r].id, title: GOV24_MARKERS[r].title, lines: [line] };
+        buckets.push(current);
+        currentRank = r;
+        switched = true;
+        break;
+      }
+    }
+    if (!switched) current.lines.push(line);
+  }
+
+  return buckets.filter((b) => b.lines.length > 0);
+}
+
+/**
+ * 정부24 서식 메타 추출. 학적(졸업) 라인의 중학교/졸업일을 학교·발급일로 잘못 잡지
+ * 않도록, 페이지 푸터("<고등학교> <발급일>", "반 N 번호 M 이름 …")에서 우선 추출한다.
+ */
+function extractGov24Meta(
+  lines: string[],
+  pageCount?: number,
+  issuedAt?: string
+): StudentRecord["meta"] {
+  const meta: StudentRecord["meta"] = {};
+  if (pageCount) meta.pageCount = pageCount;
+  if (issuedAt) meta.issuedAt = issuedAt;
+
+  for (const raw of lines) {
+    const line = raw.replace(/\s+/g, " ").trim();
+
+    // 학교: 졸업/입학 학적 라인 또는 수여기관("…고등학교장")에서 고등학교명을 잡는다.
+    // 페이지 푸터의 학교명은 cleanLines 가 이미 걸러내므로 본문에서 추출한다.
+    if (!meta.school) {
+      const hs = line.match(/([가-힯]{2,}고등학교)/);
+      if (hs) meta.school = hs[1];
+    }
+
+    const idLine = line.match(/반\s*(\d+)\s*번호\s*(\d+)\s*이름\s*([가-힯]+)/);
+    if (idLine) {
+      if (!meta.classNo) meta.classNo = idLine[1];
+      if (!meta.studentNo) meta.studentNo = idLine[2];
+      if (!meta.name) meta.name = idLine[3];
+    }
+
+    if (meta.school && meta.classNo && meta.name) break;
+  }
+  return meta;
+}
+
+/** opendataloader 메타의 "modification/creation date"(D:YYYYMMDD…) → "YYYY-MM-DD" */
+function issuedAtFromJsonDate(json: unknown): string | undefined {
+  if (!json || typeof json !== "object") return undefined;
+  const o = json as Record<string, unknown>;
+  for (const key of ["modification date", "creation date"]) {
+    const v = o[key];
+    if (typeof v === "string") {
+      const m = v.match(/D:(\d{4})(\d{2})(\d{2})/);
+      if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * 정부24 출결상황 표는 15개 컬럼으로 깔끔히 구조화돼 있어(컬럼 번호 c1~c15),
+ * 텍스트 평탄화가 아니라 표 노드에서 컬럼 번호로 직접 읽는다. 빈 카운트 셀은 0(개근).
+ *   c1 학년 | c2 수업일수 | c3~5 결석(질병/무단/기타) | c6~8 지각 | c9~11 조퇴 |
+ *   c12~14 결과 | c15 특기사항
+ * 정부24 표기 "무단" → db3/내보내기 스키마의 "미인정" 컬럼으로 매핑한다.
+ */
+function parseGov24Attendance(root: unknown): StructuredTable | null {
+  const tables = collectTablesOfType(root, ["table"]);
+  const table = tables.find((t) => {
+    const head = (Array.isArray(t.rows) ? (t.rows as unknown[]) : [])
+      .slice(0, 2)
+      .map((r) => {
+        const cells = (r as Record<string, unknown>)?.cells;
+        return Array.isArray(cells)
+          ? (cells as unknown[]).map((c) => collectParagraphTexts(c).join("")).join("")
+          : "";
+      })
+      .join("");
+    return /수업일수/.test(head) && /결석일수/.test(head);
+  });
+  if (!table) return null;
+
+  const columns = [
+    "학년", "수업일수",
+    "결석-질병", "결석-미인정", "결석-기타",
+    "지각-질병", "지각-미인정", "지각-기타",
+    "조퇴-질병", "조퇴-미인정", "조퇴-기타",
+    "결과-질병", "결과-미인정", "결과-기타",
+    "특기사항",
+  ];
+
+  const tableRows = Array.isArray(table.rows) ? (table.rows as unknown[]) : [];
+  const cellsOf = (r: unknown): Array<Record<string, unknown>> => {
+    const cs = (r as Record<string, unknown>)?.cells;
+    return Array.isArray(cs) ? (cs as Array<Record<string, unknown>>) : [];
+  };
+  const cnOf = (c: Record<string, unknown>) =>
+    typeof c["column number"] === "number" ? (c["column number"] as number) : 0;
+  const txtOf = (c: Record<string, unknown>) =>
+    collectParagraphTexts(c).join(" ").replace(/\s+/g, " ").trim();
+
+  // ── 헤더 2줄로 컬럼 의미를 매핑한다. opendataloader(Java)는 15컬럼, hybrid(docling)는
+  //    13컬럼 등 서식·엔진에 따라 컬럼 수/스팬이 달라지므로 고정 번호 대신 헤더를 읽는다.
+  const r1 = cellsOf(tableRows[0]);
+  const r2 = cellsOf(tableRows[1]);
+  let yearCol = -1;
+  let dayCol = -1;
+  let specialCol = -1;
+  const groupRanges: Array<{ g: string; from: number; to: number }> = [];
+  for (const c of r1) {
+    const cn = cnOf(c);
+    const span = typeof c["column span"] === "number" ? (c["column span"] as number) : 1;
+    const t = txtOf(c);
+    if (/학년/.test(t)) yearCol = cn;
+    else if (/수업일수/.test(t)) dayCol = cn;
+    else if (/특기/.test(t)) specialCol = cn;
+    else if (/결석/.test(t)) groupRanges.push({ g: "결석", from: cn, to: cn + span });
+    else if (/지각/.test(t)) groupRanges.push({ g: "지각", from: cn, to: cn + span });
+    else if (/조퇴/.test(t)) groupRanges.push({ g: "조퇴", from: cn, to: cn + span });
+    else if (/결과/.test(t)) groupRanges.push({ g: "결과", from: cn, to: cn + span });
+  }
+  const itemOf: Record<number, string> = {};
+  for (const c of r2) {
+    const t = txtOf(c);
+    if (/질병/.test(t)) itemOf[cnOf(c)] = "질병";
+    else if (/무단|미인정/.test(t)) itemOf[cnOf(c)] = "미인정";
+    else if (/기타/.test(t)) itemOf[cnOf(c)] = "기타";
+  }
+  const keyOf: Record<number, string> = {};
+  for (const gr of groupRanges) {
+    for (let cc = gr.from; cc < gr.to; cc += 1) {
+      const item = itemOf[cc];
+      if (item) keyOf[cc] = `${gr.g}-${item}`;
+    }
+  }
+  if (yearCol < 0) yearCol = 1;
+  if (dayCol < 0) dayCol = 2;
+
+  const rows: Array<Record<string, string>> = [];
+  for (const r of tableRows.slice(2)) {
+    const cells = cellsOf(r);
+    if (cells.length === 0) continue;
+    const byCol: Record<number, string> = {};
+    let maxCol = 0;
+    for (const c of cells) {
+      const cn = cnOf(c);
+      byCol[cn] = txtOf(c);
+      if (cn > maxCol) maxCol = cn;
+    }
+    if (!/^[123]$/.test(byCol[yearCol] ?? "")) continue;
+    if (!/^\d+$/.test(byCol[dayCol] ?? "")) continue;
+
+    const row: Record<string, string> = { 학년: byCol[yearCol], 수업일수: byCol[dayCol] };
+    for (const [cnStr, key] of Object.entries(keyOf)) {
+      const v = byCol[Number(cnStr)] ?? "";
+      row[key] = /^\d+$/.test(v) ? v : "0";
+    }
+    // 특기사항: 헤더에 특기 컬럼이 있으면 그 값을, 없으면(docling 누락) 마지막 컬럼의
+    // 비숫자 텍스트(개근 등)를 사용.
+    if (specialCol >= 0 && byCol[specialCol]) row["특기사항"] = byCol[specialCol];
+    else {
+      const last = byCol[maxCol] ?? "";
+      row["특기사항"] = /^\d*$/.test(last) ? "" : last;
+    }
+    // 누락된 카운트 컬럼은 0 으로 채움(개근 등)
+    rows.push(Object.fromEntries(columns.map((c) => [c, row[c] ?? "0"])));
+  }
+  // 특기사항이 0 으로 채워진 경우 빈 문자열로 정정
+  for (const r of rows) if (r["특기사항"] === "0") r["특기사항"] = "";
+
+  if (rows.length === 0) return null;
+  return { columns, rows };
+}
+
+/**
+ * 정부24 교과학습발달상황 — hybrid(docling) 추출 결과 대응.
+ * docling 은 교과 표를 "과목당 한 행"으로 구조화한다:
+ *   일반(9컬럼): c1 교과 | c2 과목 | c3~5 1학기[단위수/원점수/석차(수강자)] |
+ *                c6~8 2학기 | c9 비고
+ *   체육·예술(7컬럼): c1 교과 | c2 과목 | c3~4 1학기[단위수/성취도] | c5~6 2학기 | c7 비고
+ *
+ * Java 단독(hybrid off) 추출은 과목이 한 셀로 뭉쳐(단위수 셀 "4 4" 등) 신뢰성 있는
+ * 분해가 불가능하므로, **단위수가 단일 정수 토큰인 행만** 구조화한다(뭉친 행은 건너뛰어
+ * 오정렬을 원천 차단). 결과 스키마는 NEIS 경로(extractOpendataloaderGrades)와 동일.
+ */
+function extractGov24Grades(root: unknown): StructuredTable | null {
+  const columns = [
+    "학년", "학기", "구분", "교과", "과목", "단위수",
+    "원점수/평균(편차)", "성취도(수강자)", "석차등급", "성취도별 분포비율",
+  ];
+  const rows: Array<Record<string, string>> = [];
+
+  const cellOf = (cells: unknown[], col: number): string => {
+    const c = (cells as Array<Record<string, unknown>>).find(
+      (x) => x["column number"] === col
+    );
+    return c ? collectParagraphTexts(c).join(" ").replace(/\s+/g, " ").trim() : "";
+  };
+  const tidyCat = (s: string) =>
+    normalizeParenWrapSpaces(
+      s.replace(/\s*[，、]\s*/g, "·").replace(/\s*[·・•]\s*/g, "·").replace(/\s*\/\s*/g, "/")
+    ).replace(/\s+/g, "");
+  const tidyScore = (s: string) => s.replace(/\s+/g, "");
+  const isSummary = (gyo: string, gwa: string) =>
+    !gwa || /합계|이수단위|^위$/.test(gwa) || /이수단위|합계/.test(gyo);
+
+  const pushGeneral = (
+    grade: string, term: string, gyo: string, gwa: string,
+    unit: string, score: string, rankCount: string
+  ) => {
+    if (!/^\d+$/.test(unit)) return; // 단일 정수 단위수만(뭉친 행/빈 학기 제외)
+    const rc = rankCount.match(/^([A-Za-z0-9]+)\s*\((\d+)\)$/);
+    const rank = rc ? rc[1] : "";
+    const count = rc ? rc[2] : "";
+    rows.push({
+      "학년": grade, "학기": term, "구분": "일반",
+      "교과": tidyCat(gyo), "과목": gwa.replace(/\s+/g, " ").trim(),
+      "단위수": unit,
+      "원점수/평균(편차)": tidyScore(score),
+      "성취도(수강자)": count ? `(${count})` : "",
+      "석차등급": /^\d+$/.test(rank) ? rank : "",
+      "성취도별 분포비율": "",
+    });
+  };
+  const pushArts = (
+    grade: string, term: string, gyo: string, gwa: string,
+    unit: string, achieve: string
+  ) => {
+    if (!/^\d+$/.test(unit)) return;
+    rows.push({
+      "학년": grade, "학기": term, "구분": "체육·예술",
+      "교과": tidyCat(gyo), "과목": gwa.replace(/\s+/g, " ").trim(),
+      "단위수": unit, "원점수/평균(편차)": "",
+      "성취도(수강자)": achieve.replace(/\s+/g, " ").trim(),
+      "석차등급": "", "성취도별 분포비율": "",
+    });
+  };
+
+  let grade = "";
+  const walk = (n: unknown) => {
+    if (!n) return;
+    if (Array.isArray(n)) { n.forEach(walk); return; }
+    if (typeof n !== "object") return;
+    const o = n as Record<string, unknown>;
+    if (typeof o.content === "string") {
+      const g = o.content.match(/\[\s*([123])\s*학년\s*\]/);
+      if (g) grade = g[1];
+    }
+    if (o.type === "table") {
+      const head = (Array.isArray(o.rows) ? (o.rows as unknown[]) : [])
+        .slice(0, 2)
+        .map((r) => {
+          const cells = (r as Record<string, unknown>)?.cells;
+          return Array.isArray(cells)
+            ? (cells as unknown[]).map((c) => collectParagraphTexts(c).join("")).join("")
+            : "";
+        })
+        .join("");
+      if (/단위수/.test(head) && /비고/.test(head) && !/수업일수/.test(head)) {
+        const arts = /성취도/.test(head) && !/석차등급/.test(head);
+        const dataRows = (Array.isArray(o.rows) ? (o.rows as unknown[]) : []).slice(2);
+        for (const r of dataRows) {
+          const cells = (r as Record<string, unknown>)?.cells;
+          if (!Array.isArray(cells)) continue;
+          const gyo = cellOf(cells, 1);
+          const gwa = cellOf(cells, 2);
+          if (isSummary(gyo, gwa)) continue;
+          if (arts) {
+            pushArts(grade, "1", gyo, gwa, cellOf(cells, 3), cellOf(cells, 4));
+            pushArts(grade, "2", gyo, gwa, cellOf(cells, 5), cellOf(cells, 6));
+          } else {
+            pushGeneral(grade, "1", gyo, gwa, cellOf(cells, 3), cellOf(cells, 4), cellOf(cells, 5));
+            pushGeneral(grade, "2", gyo, gwa, cellOf(cells, 6), cellOf(cells, 7), cellOf(cells, 8));
+          }
+        }
+      }
+    }
+    for (const k of ["kids", "children", "list items", "rows", "cells"]) {
+      if (Array.isArray(o[k])) walk(o[k]);
+    }
+  };
+  walk(root);
+
+  if (rows.length === 0) return null;
+  return { columns, rows };
+}
+
 export function parseStudentRecord(json: unknown): StudentRecord {
   const lines = linesFromJson(json);
   const warnings: string[] = [];
@@ -2123,10 +2496,14 @@ export function parseStudentRecord(json: unknown): StudentRecord {
     return undefined;
   })();
 
-  const meta = extractMeta(lines, pageCount);
-  const buckets = recoverAttendanceRows(
-    redistributeSections1to3(splitIntoBuckets(lines))
-  );
+  const gov24 = isGov24Format(json, lines);
+
+  const meta = gov24
+    ? extractGov24Meta(lines, pageCount, issuedAtFromJsonDate(json))
+    : extractMeta(lines, pageCount);
+  const buckets = gov24
+    ? splitGov24Sections(lines)
+    : recoverAttendanceRows(redistributeSections1to3(splitIntoBuckets(lines)));
   const sections = buildSections(buckets);
 
   // opendataloader-pdf 트리에서 교과학습 테이블을 구조 기반으로 추출해 덮어쓰기
@@ -2134,7 +2511,24 @@ export function parseStudentRecord(json: unknown): StudentRecord {
     json &&
     typeof json === "object" &&
     ("file name" in json || Array.isArray((json as { kids?: unknown }).kids));
-  if (isOpendataloader) {
+
+  if (gov24) {
+    // 정부24: 출결표는 표 구조에서 직접(컬럼 번호) 신뢰성 있게 구조화한다.
+    // 교과 성적표는 dense 표에서 과목명이 단일 문단으로 붕괴돼 과목↔점수 매핑이
+    // 추출 단계에서 소실되므로(오정렬 위험), 구조화 표를 만들지 않고 원문 텍스트로 둔다.
+    const attendance = parseGov24Attendance(json);
+    if (attendance) {
+      const s = sections.find((x) => x.id === "attendance");
+      if (s) s.tables = [attendance];
+    }
+    // 교과 성적표: hybrid(docling) 추출이면 과목별 구조화, Java 단독이면 행이
+    // 뭉쳐 있어 extractGov24Grades 가 빈 결과 → 원문 텍스트로 둔다.
+    const grades = extractGov24Grades(json);
+    if (grades) {
+      const s = sections.find((x) => x.id === "grades");
+      if (s) s.tables = [grades, ...(s.tables ?? [])];
+    }
+  } else if (isOpendataloader) {
     const gradesTable = extractOpendataloaderGrades(json);
     if (gradesTable) {
       const gradesSection = sections.find((s) => s.id === "grades");
