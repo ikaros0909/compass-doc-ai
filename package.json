@@ -29,7 +29,8 @@
     "dist": "npm run dist:prepare && electron-builder --win --x64 -c electron-builder.yml --publish never",
     "dist:signed": "npm run dist:prepare && npx --yes dotenv-cli -e .env.local -- electron-builder --win --x64 -c electron-builder.signing.yml --publish never",
     "dist:publish": "npm run dist:prepare && npx --yes dotenv-cli -e .env.local -- electron-builder --win --x64 -c electron-builder.yml --publish always",
-    "dist:publish:signed": "npm run dist:prepare && npx --yes dotenv-cli -e .env.local -- electron-builder --win --x64 -c electron-builder.signing.yml --publish always"
+    "dist:publish:signed": "npm run dist:prepare && npx --yes dotenv-cli -e .env.local -- electron-builder --win --x64 -c electron-builder.signing.yml --publish always",
+    "dist:publish:ci": "npm run dist:prepare && electron-builder --win --x64 -c electron-builder.yml --publish always"
   },
   "dependencies": {
     "@opendataloader/pdf": "^1.0.0",

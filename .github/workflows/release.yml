@@ -27,4 +27,6 @@ jobs:
       - name: Build & Publish (Electron Builder → GitHub Releases)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run dist:publish
+        # 미서명 게시. dist:publish 는 .env.local(dotenv-cli) 을 요구해 CI 에선 불가하므로
+        # 토큰을 env 로 받는 전용 스크립트를 사용한다. 서명 준비되면 :signed 경로로 교체.
+        run: npm run dist:publish:ci
