@@ -17,6 +17,9 @@ data/json
 data/exports
 data/tmp
 data/vault.json
+
+# 로컬 테스트/실험 폴더 (학생부 샘플·진단 번들 등 개인정보 포함 가능)
+test/
 data/*.db
 data/*.db-journal
 data/*.db-wal
