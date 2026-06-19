@@ -46,7 +46,10 @@ const cmd = target === "node" ? "npm" : "npx";
 const args =
   target === "node"
     ? ["rebuild", "better-sqlite3"]
-    : ["electron-rebuild", "-f", "-w", "better-sqlite3"];
+    // --only(=-o): better-sqlite3 만 리빌드하고 나머지(canvas 등 옵션 네이티브
+    // 모듈)는 무시. -w 는 목록을 제한하지 못해 CI 에서 canvas 컴파일(→VS 부재)로
+    // 실패했었다.
+    : ["electron-rebuild", "-f", "--only", "better-sqlite3"];
 
 const result = spawnSync(cmd, args, {
   stdio: "inherit",

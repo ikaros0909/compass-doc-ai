@@ -23,7 +23,7 @@
     "fetch:jre": "node scripts/fetch-jre.mjs",
     "use:node": "node scripts/ensure-native-abi.mjs node",
     "use:electron": "node scripts/ensure-native-abi.mjs electron",
-    "rebuild:native": "electron-rebuild -f -w better-sqlite3",
+    "rebuild:native": "electron-rebuild -f --only better-sqlite3",
     "rebuild:node": "npm rebuild better-sqlite3",
     "dist:prepare": "npm run use:node && npm run build && npm run use:electron && npm run bundle:standalone && npm run fetch:jre",
     "dist": "npm run dist:prepare && electron-builder --win --x64 -c electron-builder.yml --publish never",
