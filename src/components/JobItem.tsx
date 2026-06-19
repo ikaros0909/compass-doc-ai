@@ -15,6 +15,7 @@ import {
   Trash2,
   Check,
   X,
+  RotateCw,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -49,6 +50,7 @@ const ENGINE_META: Record<
 interface JobItemProps {
   job: JobRecord;
   onDelete?: (jobId: string) => void | Promise<void>;
+  onRetry?: (jobId: string) => void | Promise<void>;
   selectable?: boolean;
   selected?: boolean;
   onSelectChange?: (jobId: string, next: boolean) => void;
@@ -76,6 +78,7 @@ const STATUS_META: Record<
 function JobItemComponent({
   job,
   onDelete,
+  onRetry,
   selectable = false,
   selected = false,
   onSelectChange,
@@ -85,7 +88,18 @@ function JobItemComponent({
   const barWidth = job.status === "processing" ? Math.max(5, job.progress) : 0;
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const canSelect = selectable && job.status === "completed";
+
+  const handleRetry = async () => {
+    if (!onRetry || retrying) return;
+    setRetrying(true);
+    try {
+      await onRetry(job.id);
+    } finally {
+      setRetrying(false);
+    }
+  };
 
   const handleDelete = async () => {
     if (!onDelete || deleting) return;
@@ -190,6 +204,22 @@ function JobItemComponent({
               </Link>
             </Button>
           </>
+        )}
+        {job.status === "failed" && onRetry && !confirming && (
+          <Button
+            variant="ghost"
+            size="icon"
+            title="재시도 (다시 변환)"
+            onClick={handleRetry}
+            disabled={retrying}
+            className="text-muted-foreground hover:text-sky-600 dark:hover:text-sky-400"
+          >
+            {retrying ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RotateCw className="h-4 w-4" />
+            )}
+          </Button>
         )}
         {onDelete && !confirming && (
           <Button

@@ -1,6 +1,8 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { ArrowLeft, Database, Download, Eye, Users } from "lucide-react";
 import { hsbExportsRepo } from "@/lib/db";
+import { isUnlocked } from "@/lib/security";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +13,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export default function ExportsPage() {
+  if (!isUnlocked()) redirect("/");
   const exports = hsbExportsRepo.list(200);
 
   return (

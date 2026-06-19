@@ -1,5 +1,7 @@
 import Database from "better-sqlite3";
 import { ensureDataDirs, paths } from "./paths";
+import { getDek } from "./security";
+import { encryptField, decryptField } from "./vault";
 import type {
   BatchSummary,
   ConvertDiagnostics,
@@ -78,10 +80,20 @@ if (process.env.NODE_ENV !== "production") {
   globalForDb.__compassDb = db;
 }
 
+// ── 민감 필드 암복호화 (수험번호·진단 등). 잠금 상태면 getDek() 가 throw → 보호.
+function encField(v: string | null | undefined): string | null {
+  if (v == null) return null;
+  return encryptField(getDek(), v);
+}
+function decField(v: string | null | undefined): string | null {
+  if (v == null) return null;
+  return decryptField(getDek(), v);
+}
+
 function parseDiagnostics(raw: string | null): ConvertDiagnostics | null {
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as ConvertDiagnostics;
+    return JSON.parse(decField(raw) as string) as ConvertDiagnostics;
   } catch {
     return null;
   }
@@ -92,16 +104,16 @@ function rowToJob(row: Record<string, unknown>): JobRecord {
     id: row.id as string,
     batchId: row.batch_id as string,
     orderIndex: row.order_index as number,
-    originalName: row.original_name as string,
+    originalName: decField(row.original_name as string) as string,
     storedName: row.stored_name as string,
     sizeBytes: row.size_bytes as number,
     pdfPath: row.pdf_path as string,
     jsonPath: (row.json_path as string | null) ?? null,
     status: row.status as JobStatus,
     progress: row.progress as number,
-    error: (row.error as string | null) ?? null,
+    error: decField(row.error as string | null),
     engine: (row.engine as ConverterEngine | null) ?? null,
-    fallbackReason: (row.fallback_reason as string | null) ?? null,
+    fallbackReason: decField(row.fallback_reason as string | null),
     diagnostics: parseDiagnostics(row.diagnostics as string | null),
     createdAt: row.created_at as string,
     startedAt: (row.started_at as string | null) ?? null,
@@ -121,7 +133,7 @@ export const jobsRepo = {
         (@id, @batchId, @orderIndex, @originalName, @storedName, @sizeBytes,
          @pdfPath, @jsonPath, @status, @progress, @error, @engine, @fallbackReason,
          @createdAt, @startedAt, @completedAt, @durationMs)`
-    ).run(job);
+    ).run({ ...job, originalName: encField(job.originalName) });
   },
 
   insertMany(jobs: JobRecord[]) {
@@ -136,7 +148,8 @@ export const jobsRepo = {
          @createdAt, @startedAt, @completedAt, @durationMs)`
     );
     const tx = db.transaction((items: JobRecord[]) => {
-      for (const item of items) stmt.run(item);
+      for (const item of items)
+        stmt.run({ ...item, originalName: encField(item.originalName) });
     });
     tx(jobs);
   },
@@ -209,10 +222,20 @@ export const jobsRepo = {
       completedAt,
       durationMs,
       engine,
-      fallbackReason,
-      diagnostics ? JSON.stringify(diagnostics) : null,
+      encField(fallbackReason),
+      diagnostics ? encField(JSON.stringify(diagnostics)) : null,
       id
     );
+  },
+
+  /** 실패/완료된 작업을 다시 큐에 넣는다 (이전 결과/진단 초기화, PDF 는 그대로 재사용) */
+  requeue(id: string) {
+    db.prepare(
+      `UPDATE jobs SET status = 'queued', progress = 0, error = NULL,
+         started_at = NULL, completed_at = NULL, duration_ms = NULL,
+         engine = NULL, fallback_reason = NULL, diagnostics = NULL
+       WHERE id = ?`
+    ).run(id);
   },
 
   markFailed(
@@ -227,8 +250,8 @@ export const jobsRepo = {
        WHERE id = ?`
     ).run(
       completedAt,
-      error,
-      diagnostics ? JSON.stringify(diagnostics) : null,
+      encField(error),
+      diagnostics ? encField(JSON.stringify(diagnostics)) : null,
       id
     );
   },
@@ -239,6 +262,10 @@ export const jobsRepo = {
 
   deleteBatch(batchId: string) {
     db.prepare(`DELETE FROM jobs WHERE batch_id = ?`).run(batchId);
+  },
+
+  deleteAll() {
+    db.prepare(`DELETE FROM jobs`).run();
   },
 
   summary(): {
@@ -383,5 +410,9 @@ export const hsbExportsRepo = {
     if (!rec) return null;
     db.prepare(`DELETE FROM hsb_exports WHERE id = ?`).run(id);
     return rec;
+  },
+
+  deleteAll() {
+    db.prepare(`DELETE FROM hsb_exports`).run();
   },
 };

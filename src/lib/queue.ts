@@ -1,6 +1,7 @@
 import { jobsRepo } from "./db";
 import { convertPdfToJson } from "./converter";
 import { emitJobEvent } from "./events";
+import { isUnlocked } from "./security";
 
 const globalForQueue = globalThis as unknown as {
   __compassQueue?: { running: boolean; started: boolean };
@@ -24,6 +25,12 @@ export function kickQueue() {
 
 async function runLoop() {
   while (true) {
+    // 잠금 상태에서는 데이터를 복호화/암호화할 수 없으므로 일시정지.
+    // 잠금 해제 시 kickQueue() 가 다시 호출되어 재개된다.
+    if (!isUnlocked()) {
+      emitJobEvent({ type: "queue.idle" });
+      return;
+    }
     const next = jobsRepo.nextQueued();
     if (!next) {
       emitJobEvent({ type: "queue.idle" });
@@ -61,6 +68,12 @@ async function runLoop() {
       if (updated) emitJobEvent({ type: "job.completed", job: updated });
     } catch (err) {
       stopProgressTicker(progressTicker);
+      if (!isUnlocked()) {
+        // 처리 중 잠금됨 → 실패가 아니라 대기열로 되돌림 (해제 후 재개)
+        jobsRepo.requeue(next.id);
+        emitJobEvent({ type: "queue.idle" });
+        return;
+      }
       const completedAt = new Date().toISOString();
       const message = err instanceof Error ? err.message : String(err);
       jobsRepo.markFailed(next.id, message, completedAt);

@@ -1,22 +1,20 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
-import fs from "node:fs/promises";
-import path from "node:path";
 import { jobsRepo } from "@/lib/db";
-import { paths, ensureDataDirs } from "@/lib/paths";
+import { ensureDataDirs } from "@/lib/paths";
 import { emitJobEvent } from "@/lib/events";
 import { kickQueue } from "@/lib/queue";
+import { isUnlocked } from "@/lib/security";
+import { encPdfPath, writeEncryptedFile } from "@/lib/storage";
 import type { JobRecord } from "@/types/job";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function sanitizeBaseName(name: string) {
-  const base = name.replace(/\.pdf$/i, "");
-  return base.replace(/[^\w가-힯.\-\s]/g, "_").slice(0, 100);
-}
-
 export async function POST(request: Request) {
+  if (!isUnlocked()) {
+    return NextResponse.json({ error: "LOCKED" }, { status: 401 });
+  }
   ensureDataDirs();
 
   let formData: FormData;
@@ -43,12 +41,12 @@ export async function POST(request: Request) {
     if (!file.name.toLowerCase().endsWith(".pdf")) continue;
 
     const id = randomUUID();
-    const safeBase = sanitizeBaseName(file.name);
-    const storedName = `${id}__${safeBase}.pdf`;
-    const pdfPath = paths.pdfFor(storedName);
+    // 불투명 저장: 파일명/경로에 수험번호가 드러나지 않게 작업 id 기반.
+    const storedName = id;
+    const pdfPath = encPdfPath(id);
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    await fs.writeFile(pdfPath, buffer);
+    await writeEncryptedFile(pdfPath, buffer); // AES-256-GCM 로 암호화 저장
 
     const job: JobRecord = {
       id,

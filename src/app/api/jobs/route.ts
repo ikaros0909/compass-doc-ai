@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
 import { jobsRepo } from "@/lib/db";
+import { isUnlocked } from "@/lib/security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
+  if (!isUnlocked()) {
+    return NextResponse.json({ error: "LOCKED" }, { status: 401 });
+  }
   const url = new URL(request.url);
   const batchId = url.searchParams.get("batchId");
   const jobs = batchId ? jobsRepo.listByBatch(batchId) : jobsRepo.listAll(500);

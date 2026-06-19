@@ -1,18 +1,19 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { UpdaterToast } from "@/components/UpdaterToast";
+import { SecurityGate } from "@/components/SecurityGate";
 
 export const metadata: Metadata = {
-  title: "Compass Doc AI — 학생부 PDF → JSON 변환 → db3 생성",
+  title: "Compass Doc AI — 학생부를 안전하게 데이터로",
   description:
-    "학생부 PDF를 Drag & Drop으로 일괄 업로드하여 db3로 변환하고 목록/상세를 관리합니다.",
+    "학생부 PDF를 내 PC에서 안전하게 데이터(JSON·db3)로 변환합니다. 완전 오프라인·로컬 처리.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ko" suppressHydrationWarning>
       <body className="h-screen overflow-hidden bg-background antialiased">
-        {children}
+        <SecurityGate>{children}</SecurityGate>
         <UpdaterToast />
       </body>
     </html>

@@ -20,6 +20,8 @@ import {
   History,
   Loader2,
   RefreshCw,
+  RotateCw,
+  Search,
   Trash2,
   X,
 } from "lucide-react";
@@ -47,6 +49,7 @@ export function JobQueue() {
   const [batches, setBatches] = useState<BatchSummary[]>([]);
   const [activeBatch, setActiveBatch] = useState<string | null>(null);
   const [filter, setFilter] = useState<JobFilter>("all");
+  const [query, setQuery] = useState("");
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [createOpen, setCreateOpen] = useState(false);
@@ -130,17 +133,53 @@ export function JobQueue() {
   });
 
   const filtered = useMemo(() => {
+    let list: JobRecord[];
     switch (filter) {
       case "active":
-        return jobs.filter((j) => j.status === "queued" || j.status === "processing");
+        list = jobs.filter((j) => j.status === "queued" || j.status === "processing");
+        break;
       case "completed":
-        return jobs.filter((j) => j.status === "completed");
+        list = jobs.filter((j) => j.status === "completed");
+        break;
       case "failed":
-        return jobs.filter((j) => j.status === "failed");
+        list = jobs.filter((j) => j.status === "failed");
+        break;
       default:
-        return jobs;
+        list = jobs;
     }
-  }, [jobs, filter]);
+    const q = query.trim().toLowerCase();
+    if (q) list = list.filter((j) => j.originalName.toLowerCase().includes(q));
+    return list;
+  }, [jobs, filter, query]);
+
+  // 진행 헤드업: 현재 처리 중 파일 + 완료 평균 소요시간 기반 ETA
+  const processingJob = useMemo(
+    () => jobs.find((j) => j.status === "processing") ?? null,
+    [jobs]
+  );
+  const etaMs = useMemo(() => {
+    const ds = jobs
+      .filter((j) => j.status === "completed" && typeof j.durationMs === "number")
+      .map((j) => j.durationMs as number);
+    if (ds.length === 0) return null;
+    const avg = ds.reduce((a, b) => a + b, 0) / ds.length;
+    const remaining = summary.queued + summary.processing;
+    return remaining > 0 ? Math.round(avg * remaining) : null;
+  }, [jobs, summary.queued, summary.processing]);
+
+  // 진행 중 항목은 목록 상단에 고정, 나머지는 스크롤 영역에
+  const pinnedJobs = useMemo(
+    () => filtered.filter((j) => j.status === "processing"),
+    [filtered]
+  );
+  const listJobs = useMemo(
+    () => filtered.filter((j) => j.status !== "processing"),
+    [filtered]
+  );
+  const failedInView = useMemo(
+    () => filtered.filter((j) => j.status === "failed"),
+    [filtered]
+  );
 
   const selectableFiltered = useMemo(
     () => filtered.filter((j) => j.status === "completed"),
@@ -216,6 +255,29 @@ export function JobQueue() {
     void fetchJobs();
   }, [fetchJobs]);
 
+  const retryJob = useCallback(
+    async (jobId: string) => {
+      const res = await fetch(`/api/jobs/${jobId}/retry`, { method: "POST" });
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        alert(`재시도 실패: ${res.status} ${body}`);
+        return;
+      }
+      await fetchJobs();
+    },
+    [fetchJobs]
+  );
+
+  const retryFailed = useCallback(async () => {
+    const targets = failedInView;
+    if (targets.length === 0) return;
+    if (!confirm(`실패한 ${targets.length}건을 다시 시도할까요?`)) return;
+    await Promise.allSettled(
+      targets.map((j) => fetch(`/api/jobs/${j.id}/retry`, { method: "POST" }))
+    );
+    await fetchJobs();
+  }, [failedInView, fetchJobs]);
+
   const deleteFiltered = useCallback(async () => {
     const targets = filtered.filter(
       (j) => j.status === "completed" || j.status === "failed"
@@ -229,52 +291,76 @@ export function JobQueue() {
   }, [filtered, fetchJobs]);
 
   return (
-    <div className="grid min-h-0 flex-1 gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,2fr)]">
-      <div className="flex min-h-0 flex-col gap-4 overflow-y-auto pr-1">
-        <Dropzone onUploaded={onUploaded} />
-        <StatsBar summary={summary} />
-
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm">최근 배치</CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0">
-            {batches.length === 0 ? (
-              <div className="text-xs text-muted-foreground">
-                아직 업로드된 배치가 없습니다.
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
+      {jobs.length === 0 ? (
+        <div className="flex flex-1 items-center justify-center">
+          <div className="w-full max-w-xl">
+            <Dropzone onUploaded={onUploaded} />
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* 적응형 상단 밴드: 슬림 업로드 + 가로 통계/진행 */}
+          <div className="shrink-0 rounded-2xl border bg-card/60 p-3">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:gap-4">
+              <div className="lg:w-64 lg:shrink-0">
+                <Dropzone onUploaded={onUploaded} compact />
               </div>
-            ) : (
-              <div className="space-y-1.5">
-                <button
-                  type="button"
-                  onClick={() => setActiveBatch(null)}
-                  className={cn(
-                    "flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-xs transition-colors hover:bg-accent",
-                    activeBatch === null && "border-primary bg-accent"
+              <div className="lg:flex-1 lg:border-l lg:border-border/60 lg:pl-4">
+                <StatsBar
+                  summary={summary}
+                  activeName={processingJob?.originalName ?? null}
+                  etaMs={etaMs}
+                  compact
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* 본문: 좁은 배치 사이드바 + 넓은 목록 */}
+          <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(200px,240px)_minmax(0,1fr)]">
+            <aside className="hidden min-h-0 lg:block">
+              <Card className="flex h-full min-h-0 flex-col">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm">최근 배치</CardTitle>
+                </CardHeader>
+                <CardContent className="min-h-0 flex-1 overflow-y-auto pt-0">
+                  {batches.length === 0 ? (
+                    <div className="text-xs text-muted-foreground">
+                      아직 업로드된 배치가 없습니다.
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setActiveBatch(null)}
+                        className={cn(
+                          "flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-xs transition-colors hover:bg-accent",
+                          activeBatch === null && "border-primary bg-accent"
+                        )}
+                      >
+                        <span className="font-medium">전체 보기</span>
+                        <span className="text-muted-foreground">{summary.total}</span>
+                      </button>
+                      {batches.map((b) => (
+                        <BatchRow
+                          key={b.batchId}
+                          batch={b}
+                          active={activeBatch === b.batchId}
+                          onSelect={() => setActiveBatch(b.batchId)}
+                          onDeleted={() => {
+                            if (activeBatch === b.batchId) setActiveBatch(null);
+                            void fetchJobs();
+                          }}
+                        />
+                      ))}
+                    </div>
                   )}
-                >
-                  <span className="font-medium">전체 보기</span>
-                  <span className="text-muted-foreground">{summary.total}</span>
-                </button>
-                {batches.map((b) => (
-                  <BatchRow
-                    key={b.batchId}
-                    batch={b}
-                    active={activeBatch === b.batchId}
-                    onSelect={() => setActiveBatch(b.batchId)}
-                    onDeleted={() => {
-                      if (activeBatch === b.batchId) setActiveBatch(null);
-                      void fetchJobs();
-                    }}
-                  />
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+                </CardContent>
+              </Card>
+            </aside>
 
-      <div className="flex min-h-0 flex-col gap-3">
+            <div className="flex min-h-0 flex-col gap-3">
         <div className="flex shrink-0 items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
             <Filter className="h-4 w-4 text-muted-foreground" />
@@ -296,6 +382,26 @@ export function JobQueue() {
                     : "실패"}
                 </Button>
               ))}
+            </div>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="파일명 검색"
+                className="h-7 w-36 rounded-md border border-input bg-background pl-7 pr-6 text-xs outline-none transition-colors focus:border-primary/50 focus:ring-1 focus:ring-primary/20"
+              />
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => setQuery("")}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  title="검색 지우기"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-1">
@@ -362,6 +468,18 @@ export function JobQueue() {
                     내보낸 목록
                   </Link>
                 </Button>
+                {failedInView.length > 0 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void retryFailed()}
+                    className="h-7 gap-1 text-xs text-sky-600 hover:text-sky-700 dark:text-sky-400"
+                    title="현재 보이는 실패 작업을 모두 다시 시도"
+                  >
+                    <RotateCw className="h-3.5 w-3.5" />
+                    실패 {failedInView.length}건 재시도
+                  </Button>
+                )}
                 <Button
                   size="sm"
                   variant="ghost"
@@ -399,21 +517,47 @@ export function JobQueue() {
           </div>
         )}
         <Card className="flex min-h-0 flex-1 flex-col">
-          <CardContent className="min-h-0 flex-1 p-0">
-            <ScrollArea className="h-full">
+          <CardContent className="flex min-h-0 flex-1 flex-col p-0">
+            {pinnedJobs.length > 0 && (
+              <div className="shrink-0 space-y-2 border-b border-sky-500/20 bg-sky-500/[0.04] p-3">
+                <div className="flex items-center gap-1.5 text-[11px] font-medium text-sky-600 dark:text-sky-400">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  처리 중
+                </div>
+                {pinnedJobs.map((job) => (
+                  <JobItem
+                    key={job.id}
+                    job={job}
+                    onDelete={deleteJob}
+                    onRetry={retryJob}
+                    selectable={selectMode}
+                    selected={selected.has(job.id)}
+                    onSelectChange={toggleSelect}
+                  />
+                ))}
+              </div>
+            )}
+            <ScrollArea className="h-full flex-1">
               <div className="space-y-2 p-3">
                 {filtered.length === 0 ? (
                   <div className="flex h-[400px] items-center justify-center text-sm text-muted-foreground">
                     {jobs.length === 0
                       ? "PDF를 드롭하면 여기에 순차 처리 상태가 표시됩니다."
+                      : query.trim()
+                      ? `"${query.trim()}" 검색 결과가 없습니다.`
                       : "필터 조건에 맞는 작업이 없습니다."}
                   </div>
+                ) : listJobs.length === 0 ? (
+                  <div className="flex h-24 items-center justify-center text-xs text-muted-foreground">
+                    위 항목을 처리하는 중입니다…
+                  </div>
                 ) : (
-                  filtered.map((job) => (
+                  listJobs.map((job) => (
                     <JobItem
                       key={job.id}
                       job={job}
                       onDelete={deleteJob}
+                      onRetry={retryJob}
                       selectable={selectMode}
                       selected={selected.has(job.id)}
                       onSelectChange={toggleSelect}
@@ -424,7 +568,10 @@ export function JobQueue() {
             </ScrollArea>
           </CardContent>
         </Card>
-      </div>
+            </div>
+          </div>
+        </>
+      )}
 
       <CreateExportDialog
         open={createOpen}

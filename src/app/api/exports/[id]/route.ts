@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import fsSync from "node:fs";
 import { hsbExportsRepo } from "@/lib/db";
 import { previewHsbDb } from "@/lib/hsbExport";
+import { isUnlocked } from "@/lib/security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,6 +12,9 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  if (!isUnlocked()) {
+    return NextResponse.json({ error: "LOCKED" }, { status: 401 });
+  }
   const { id } = await params;
   const rec = hsbExportsRepo.findById(id);
   if (!rec) {
@@ -44,6 +48,9 @@ export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  if (!isUnlocked()) {
+    return NextResponse.json({ error: "LOCKED" }, { status: 401 });
+  }
   const { id } = await params;
   const rec = hsbExportsRepo.delete(id);
   if (!rec) {

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import fs from "node:fs/promises";
 import { jobsRepo } from "@/lib/db";
+import { isUnlocked } from "@/lib/security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,6 +10,9 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  if (!isUnlocked()) {
+    return NextResponse.json({ error: "LOCKED" }, { status: 401 });
+  }
   const { id } = await params;
   const job = jobsRepo.findById(id);
   if (!job) return NextResponse.json({ error: "not found" }, { status: 404 });
@@ -19,6 +23,9 @@ export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  if (!isUnlocked()) {
+    return NextResponse.json({ error: "LOCKED" }, { status: 401 });
+  }
   const { id } = await params;
   const job = jobsRepo.findById(id);
   if (!job) return NextResponse.json({ error: "not found" }, { status: 404 });

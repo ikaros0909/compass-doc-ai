@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import fs from "node:fs/promises";
 import { jobsRepo } from "@/lib/db";
+import { isUnlocked } from "@/lib/security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,6 +10,9 @@ export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ batchId: string }> }
 ) {
+  if (!isUnlocked()) {
+    return NextResponse.json({ error: "LOCKED" }, { status: 401 });
+  }
   const { batchId } = await params;
   const jobs = jobsRepo.listByBatch(batchId);
   if (jobs.length === 0) {

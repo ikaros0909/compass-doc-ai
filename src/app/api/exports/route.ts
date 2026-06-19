@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import { jobsRepo, hsbExportsRepo } from "@/lib/db";
+import { isUnlocked } from "@/lib/security";
+import { readEncryptedText } from "@/lib/storage";
 import {
   buildHsbDb,
   generateExportFileName,
@@ -13,6 +15,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  if (!isUnlocked()) {
+    return NextResponse.json({ error: "LOCKED" }, { status: 401 });
+  }
   const exports = hsbExportsRepo.list(100);
   return NextResponse.json({
     exports: exports.map((e) => ({
@@ -36,6 +41,9 @@ interface CreateBody {
 }
 
 export async function POST(request: Request) {
+  if (!isUnlocked()) {
+    return NextResponse.json({ error: "LOCKED" }, { status: 401 });
+  }
   let body: CreateBody;
   try {
     body = (await request.json()) as CreateBody;
@@ -105,7 +113,7 @@ export async function POST(request: Request) {
       continue;
     }
     try {
-      const raw = await fs.readFile(job.jsonPath, "utf8");
+      const raw = await readEncryptedText(job.jsonPath);
       inputs.push({
         jobId: job.id,
         originalName: job.originalName,

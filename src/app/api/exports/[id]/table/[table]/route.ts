@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { hsbExportsRepo } from "@/lib/db";
+import { isUnlocked } from "@/lib/security";
 import {
   HSB_TABLE_NAMES,
   queryHsbTable,
@@ -14,6 +15,9 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string; table: string }> }
 ) {
+  if (!isUnlocked()) {
+    return NextResponse.json({ error: "LOCKED" }, { status: 401 });
+  }
   const { id, table } = await params;
   const rec = hsbExportsRepo.findById(id);
   if (!rec) {
@@ -52,6 +56,9 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string; table: string }> }
 ) {
+  if (!isUnlocked()) {
+    return NextResponse.json({ error: "LOCKED" }, { status: 401 });
+  }
   const { id, table } = await params;
   const rec = hsbExportsRepo.findById(id);
   if (!rec) {

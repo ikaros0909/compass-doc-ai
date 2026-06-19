@@ -1,7 +1,8 @@
 import Link from "next/link";
-import fs from "node:fs/promises";
-import { notFound } from "next/navigation";
-import { ArrowLeft, Cpu, Download, FileText, Zap } from "lucide-react";
+import { notFound, redirect } from "next/navigation";
+import { isUnlocked } from "@/lib/security";
+import { readEncryptedText } from "@/lib/storage";
+import { ArrowLeft, Cpu, Download, FileText, LifeBuoy, Zap } from "lucide-react";
 import { jobsRepo } from "@/lib/db";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -18,7 +19,7 @@ export const dynamic = "force-dynamic";
 async function loadJson(path: string | null) {
   if (!path) return null;
   try {
-    const raw = await fs.readFile(path, "utf8");
+    const raw = await readEncryptedText(path);
     return { raw, parsed: JSON.parse(raw) as unknown };
   } catch {
     return null;
@@ -30,6 +31,7 @@ export default async function JobDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  if (!isUnlocked()) redirect("/");
   const { id } = await params;
   const job = jobsRepo.findById(id);
   if (!job) notFound();
@@ -95,6 +97,17 @@ export default async function JobDetailPage({
                     </a>
                   </Button>
                 </>
+              )}
+              {(job.status === "completed" || job.status === "failed") && (
+                <Button asChild variant="outline" size="sm" className="gap-1">
+                  <a
+                    href={`/api/jobs/${job.id}/diagnostics`}
+                    title="변환 원본 JSON·진단 근거·서버 로그를 한 파일로 받아 개발자에게 보낼 수 있습니다"
+                  >
+                    <LifeBuoy className="h-4 w-4" />
+                    진단 보내기
+                  </a>
+                </Button>
               )}
             </div>
           </div>

@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { ArrowLeft, Download } from "lucide-react";
 import { hsbExportsRepo } from "@/lib/db";
+import { isUnlocked } from "@/lib/security";
 import { HSB_TABLE_NAMES, previewHsbDb } from "@/lib/hsbExport";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -21,6 +22,7 @@ export default async function ExportDetailPage({
   params,
   searchParams,
 }: PageProps) {
+  if (!isUnlocked()) redirect("/");
   const { id } = await params;
   const { table } = await searchParams;
 

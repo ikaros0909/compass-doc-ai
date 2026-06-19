@@ -75,6 +75,27 @@
   background: hsl(var(--muted-foreground) / 0.5);
 }
 
+/* 첫 접속 안내: 업로드 영역을 잔잔하게 5번 글로우시켜 시선을 유도 */
+@keyframes dropzone-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 hsl(var(--primary) / 0);
+    border-color: hsl(var(--border) / 0.7);
+  }
+  50% {
+    box-shadow: 0 0 18px 1px hsl(var(--primary) / 0.28);
+    border-color: hsl(var(--primary) / 0.55);
+  }
+}
+.dropzone-pulse {
+  animation: dropzone-pulse 1.8s ease-in-out 5;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dropzone-pulse {
+    animation: none;
+  }
+}
+
 /* Shimmer bar for active processing */
 .processing-bar {
   background: linear-gradient(
