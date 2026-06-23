@@ -2,6 +2,8 @@ import Database from "better-sqlite3";
 import { ensureDataDirs, paths } from "./paths";
 import { getDek } from "./security";
 import { encryptField, decryptField } from "./vault";
+import { defaultSubjectCodeEntries } from "./subjectCodeSeed";
+import { normalizeSubjectName } from "./subjectCodeNorm";
 import type {
   BatchSummary,
   ConvertDiagnostics,
@@ -59,6 +61,18 @@ export const db =
         created_at TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_hsb_exports_created ON hsb_exports(created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS subject_code_map (
+        norm_name TEXT PRIMARY KEY,
+        subject_name TEXT NOT NULL,
+        subject_code TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS app_meta (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
     `);
     // Additive migration — older DBs created before the engine column exists.
     const columns = instance
@@ -416,3 +430,131 @@ export const hsbExportsRepo = {
     db.prepare(`DELETE FROM hsb_exports`).run();
   },
 };
+
+export interface SubjectCodeRecord {
+  normName: string;
+  subjectName: string;
+  subjectCode: string;
+  updatedAt: string;
+}
+
+/** LIKE 와일드카드(%,_,\) 이스케이프 — 사용자 검색어를 리터럴로 취급 */
+function escapeLike(s: string): string {
+  return s.replace(/[\\%_]/g, (c) => `\\${c}`);
+}
+
+/**
+ * 과목코드 매핑표. 학생 개인정보가 아닌 코드표라 평문 저장(잠금 상태와 무관).
+ * 매칭 키는 정규화된 과목명(norm_name).
+ */
+export const subjectCodeRepo = {
+  upsertMany(
+    entries: Array<{ normName: string; subjectName: string; subjectCode: string }>,
+    updatedAt: string
+  ): number {
+    const stmt = db.prepare(
+      `INSERT INTO subject_code_map (norm_name, subject_name, subject_code, updated_at)
+       VALUES (@normName, @subjectName, @subjectCode, @updatedAt)
+       ON CONFLICT(norm_name) DO UPDATE SET
+         subject_name = excluded.subject_name,
+         subject_code = excluded.subject_code,
+         updated_at = excluded.updated_at`
+    );
+    const tx = db.transaction(
+      (items: Array<{ normName: string; subjectName: string; subjectCode: string }>) => {
+        for (const it of items) stmt.run({ ...it, updatedAt });
+      }
+    );
+    tx(entries);
+    return entries.length;
+  },
+
+  /** 과목명/코드 부분일치 검색 (매핑표가 수만 행이라 전량 반환 대신 검색·상한). */
+  search(query: string, limit = 200): SubjectCodeRecord[] {
+    const q = query.trim();
+    const rows = (
+      q
+        ? db
+            .prepare(
+              `SELECT norm_name, subject_name, subject_code, updated_at
+               FROM subject_code_map
+               WHERE subject_name LIKE ? ESCAPE '\\' OR subject_code LIKE ? ESCAPE '\\'
+               ORDER BY subject_name ASC LIMIT ?`
+            )
+            .all(`%${escapeLike(q)}%`, `%${escapeLike(q)}%`, limit)
+        : db
+            .prepare(
+              `SELECT norm_name, subject_name, subject_code, updated_at
+               FROM subject_code_map ORDER BY subject_name ASC LIMIT ?`
+            )
+            .all(limit)
+    ) as Record<string, unknown>[];
+    return rows.map((r) => ({
+      normName: r.norm_name as string,
+      subjectName: r.subject_name as string,
+      subjectCode: r.subject_code as string,
+      updatedAt: r.updated_at as string,
+    }));
+  },
+
+  count(): number {
+    const row = db
+      .prepare(`SELECT COUNT(*) as n FROM subject_code_map`)
+      .get() as { n: number };
+    return row.n ?? 0;
+  },
+
+  /**
+   * 정규화 과목명 → 과목코드 lookup map (내보내기 시 일괄 조회용).
+   * 저장된 norm_name(업로드 시점 정규화 규칙) 대신 원본 subject_name 을 현재
+   * normalizeSubjectName 으로 다시 정규화해 키를 만든다. 정규화 규칙이 개선되면
+   * 시드/재업로드 없이도 즉시 매칭에 반영된다(PDF 측과 동일 함수 사용).
+   */
+  asMap(): Record<string, string> {
+    const rows = db
+      .prepare(`SELECT subject_name, subject_code FROM subject_code_map`)
+      .all() as Array<{ subject_name: string; subject_code: string }>;
+    const out: Record<string, string> = {};
+    for (const r of rows) out[normalizeSubjectName(r.subject_name)] = r.subject_code;
+    return out;
+  },
+
+  clear(): number {
+    const n = this.count();
+    db.prepare(`DELETE FROM subject_code_map`).run();
+    return n;
+  },
+};
+
+export const appMetaRepo = {
+  get(key: string): string | null {
+    const row = db.prepare(`SELECT value FROM app_meta WHERE key = ?`).get(key) as
+      | { value: string }
+      | undefined;
+    return row?.value ?? null;
+  },
+  set(key: string, value: string) {
+    db.prepare(
+      `INSERT INTO app_meta (key, value) VALUES (?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+    ).run(key, value);
+  },
+};
+
+// ── 기본 과목코드 시드(최초 1회). 설치 직후 매핑표가 채워져 있도록 하되,
+//    사용자가 직접 삭제/업로드한 결과는 덮어쓰지 않는다(삭제 후 재시드 방지).
+const SUBJECT_CODE_SEED_KEY = "subject_code_seeded";
+function seedDefaultSubjectCodesOnce() {
+  try {
+    if (appMetaRepo.get(SUBJECT_CODE_SEED_KEY)) return; // 이미 1회 시드 처리됨
+    // 마이그레이션 안전장치: 이미 매핑이 있으면(기존 사용자) 건드리지 않고 마커만 기록.
+    if (subjectCodeRepo.count() === 0) {
+      subjectCodeRepo.upsertMany(defaultSubjectCodeEntries(), new Date().toISOString());
+    }
+    appMetaRepo.set(SUBJECT_CODE_SEED_KEY, new Date().toISOString());
+  } catch (err) {
+    console.error("[db] 기본 과목코드 시드 실패:", err);
+  }
+}
+
+seedDefaultSubjectCodesOnce();

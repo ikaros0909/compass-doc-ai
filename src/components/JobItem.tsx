@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { memo, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import {
   CheckCircle2,
   Clock,
@@ -16,10 +16,13 @@ import {
   Check,
   X,
   RotateCw,
+  ListChecks,
+  AlertTriangle,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { JobSubjectsDialog } from "./JobSubjectsDialog";
 import { cn, formatBytes, formatDuration } from "@/lib/utils";
 import type { JobRecord } from "@/types/job";
 
@@ -54,6 +57,10 @@ interface JobItemProps {
   selectable?: boolean;
   selected?: boolean;
   onSelectChange?: (jobId: string, next: boolean) => void;
+  /** 전역 과목코드 매핑이 바뀔 때 증가 — 미매핑 배지 재조회 트리거 */
+  mappingVersion?: number;
+  /** 이 작업에서 과목을 매핑 저장했을 때 — 부모가 전역 매핑/배지를 갱신 */
+  onMappingChanged?: () => void;
 }
 
 const STATUS_META: Record<
@@ -82,6 +89,8 @@ function JobItemComponent({
   selectable = false,
   selected = false,
   onSelectChange,
+  mappingVersion = 0,
+  onMappingChanged,
 }: JobItemProps) {
   const meta = STATUS_META[job.status];
   const showBar = job.status === "processing" || job.status === "queued";
@@ -89,7 +98,33 @@ function JobItemComponent({
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  const [subjectsOpen, setSubjectsOpen] = useState(false);
+  const [subjectInfo, setSubjectInfo] = useState<
+    { total: number; unmappedCount: number } | null
+  >(null);
   const canSelect = selectable && job.status === "completed";
+
+  // 완료 작업의 교과 과목코드 매핑 점검 — 미매핑 여부를 처리 목록에 표시.
+  useEffect(() => {
+    if (job.status !== "completed") {
+      setSubjectInfo(null);
+      return;
+    }
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch(`/api/jobs/${job.id}/subjects`, { cache: "no-store" });
+        if (!res.ok) return;
+        const data = (await res.json()) as { total: number; unmappedCount: number };
+        if (alive) setSubjectInfo({ total: data.total, unmappedCount: data.unmappedCount });
+      } catch {
+        /* 무시 */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [job.id, job.status, mappingVersion]);
 
   const handleRetry = async () => {
     if (!onRetry || retrying) return;
@@ -169,6 +204,25 @@ function JobItemComponent({
               ⚠ {job.error.slice(0, 80)}
             </span>
           )}
+          {job.status === "completed" && subjectInfo && subjectInfo.total > 0 && (
+            <button
+              type="button"
+              onClick={() => setSubjectsOpen(true)}
+              title="교과 과목코드 매핑 점검 / 수작업 매핑"
+            >
+              {subjectInfo.unmappedCount > 0 ? (
+                <Badge variant="warning" className="gap-1 text-[10px]">
+                  <AlertTriangle className="h-3 w-3" />
+                  교과 미매핑 {subjectInfo.unmappedCount}
+                </Badge>
+              ) : (
+                <Badge variant="success" className="gap-1 text-[10px]">
+                  <ListChecks className="h-3 w-3" />
+                  교과코드 OK
+                </Badge>
+              )}
+            </button>
+          )}
         </div>
 
         {showBar && (
@@ -193,6 +247,18 @@ function JobItemComponent({
       >
         {job.status === "completed" && !confirming && (
           <>
+            <Button
+              variant="ghost"
+              size="icon"
+              title="교과 과목코드 매핑 점검 / 수작업 매핑"
+              onClick={() => setSubjectsOpen(true)}
+              className={cn(
+                subjectInfo && subjectInfo.unmappedCount > 0 &&
+                  "text-amber-600 hover:text-amber-700 dark:text-amber-400"
+              )}
+            >
+              <ListChecks className="h-4 w-4" />
+            </Button>
             <Button asChild variant="ghost" size="icon" title="JSON 다운로드">
               <a href={`/api/jobs/${job.id}/json?download=1`}>
                 <Download className="h-4 w-4" />
@@ -260,6 +326,16 @@ function JobItemComponent({
           </>
         )}
       </div>
+
+      {job.status === "completed" && (
+        <JobSubjectsDialog
+          jobId={job.id}
+          jobName={job.originalName}
+          open={subjectsOpen}
+          onOpenChange={setSubjectsOpen}
+          onMapped={onMappingChanged}
+        />
+      )}
     </div>
   );
 }

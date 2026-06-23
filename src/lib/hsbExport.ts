@@ -4,6 +4,7 @@ import Database from "better-sqlite3";
 import { parseStudentRecord } from "./studentRecord";
 import type { RecordSection, StructuredTable, StudentRecord } from "./studentRecord";
 import { paths } from "./paths";
+import { normalizeSubjectName } from "./subjectCodeNorm";
 
 // -------------------------------------------------------------------------
 // hsb.db3 schema (14 tables) — 컬럼 순서/타입은 원본 hsb.db3와 동일.
@@ -308,6 +309,8 @@ export interface StudentExportInput {
 export interface ExportOptions {
   mogib1: string;
   mogib2: string;
+  /** 정규화 과목명 → 과목코드. 비어 있으면 SubjectCode 는 공란으로 둔다. */
+  subjectCodeMap?: Record<string, string>;
 }
 
 interface StudentContext {
@@ -317,6 +320,10 @@ interface StudentContext {
   socialNumber: string;
   record: StudentRecord;
   input: StudentExportInput;
+  /** 정규화 과목명 → 과목코드 매핑 */
+  subjectCodeMap: Record<string, string>;
+  /** 매핑 실패한 과목명 수집(경고용) — 호출자 공유 Set */
+  unmappedSubjects: Set<string>;
 }
 
 function sectionById(
@@ -631,8 +638,8 @@ interface SubjectScoreRow {
   Rank: string;
   SameRank: string;
   StudentCount: string;
-  OriginalScore: string;
-  AvgScore: string;
+  OriginalScore: string | null;
+  AvgScore: string | null;
   StandardDeviation: string;
   RankingGrade: string;
   RankingGradeCode: string;
@@ -648,6 +655,15 @@ function buildSubjectScore(ctx: StudentContext): SubjectScoreRow[] {
   return t.rows.map((r, i) => {
     const sa = parseScoreAvg(r["원점수/평균(편차)"] ?? "");
     const ach = parseAchievement(r["성취도(수강자)"] ?? "");
+    // P/F(이수/미이수) 과목은 원점수·과목평균이 존재하지 않는다. 숫자 컬럼인
+    // OriginalScore/AvgScore 에 "P" 가 들어가면 수치 파싱 오류를 유발하므로 null 로 둔다.
+    const isPassFail = (r["원점수/평균(편차)"] ?? "") === "P" || sa.original === "P";
+    // SubjectCode: 업로드된 과목코드 매핑표에서 정규화 과목명으로 조회.
+    const subjectName = r["과목"] ?? "";
+    const subjectCode = subjectName
+      ? ctx.subjectCodeMap[normalizeSubjectName(subjectName)] ?? ""
+      : "";
+    if (subjectName && !subjectCode) ctx.unmappedSubjects.add(subjectName);
     return {
       Mogib1: ctx.mogib1,
       Mogib2: ctx.mogib2,
@@ -661,16 +677,16 @@ function buildSubjectScore(ctx: StudentContext): SubjectScoreRow[] {
       OrganizationName: r["교과"] ?? "",
       CourceCode: "",
       CourceName: "",
-      SubjectCode: "",
-      SubjectName: r["과목"] ?? "",
+      SubjectCode: subjectCode,
+      SubjectName: subjectName,
       Term: intOrNull(r["학기"]),
       Unit: r["단위수"] ?? "",
       Assessment: r["성취도(수강자)"] ?? "",
       Rank: "",
       SameRank: "",
       StudentCount: ach.studentCount,
-      OriginalScore: sa.original,
-      AvgScore: sa.avg,
+      OriginalScore: isPassFail ? null : sa.original,
+      AvgScore: isPassFail ? null : sa.avg,
       StandardDeviation: sa.stdDev,
       RankingGrade: r["석차등급"] ?? "",
       RankingGradeCode: "",
@@ -680,6 +696,32 @@ function buildSubjectScore(ctx: StudentContext): SubjectScoreRow[] {
       SubjectSeparationCode: r["구분"] === "진로 선택" ? "Q" : r["구분"] === "체육·예술" ? "A" : "",
     };
   });
+}
+
+/**
+ * 학생부 JSON에서 교과학습발달상황(SubjectScore)에 들어갈 고유 과목명을 추출한다.
+ * 과목코드 매핑 점검/수작업 매핑 UI 에서 "이 PDF가 어떤 과목을 담고 있는지"를
+ * 알기 위해 사용한다. buildSubjectScore 와 동일한 표(grades index 0, "과목" 컬럼)를 본다.
+ */
+export function extractSubjectNames(recordJson: unknown): string[] {
+  let record: StudentRecord;
+  try {
+    record = parseStudentRecord(recordJson);
+  } catch {
+    return [];
+  }
+  const t = tableByPrimarySection(record.sections, "grades", 0);
+  if (!t) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const r of t.rows) {
+    const name = (r["과목"] ?? "").trim();
+    if (name && !seen.has(name)) {
+      seen.add(name);
+      out.push(name);
+    }
+  }
+  return out;
 }
 
 interface DetailAbilityRow {
@@ -836,6 +878,8 @@ export function buildHsbDb(
 
   const warnings: string[] = [];
   const studentsResult: StudentExportResult[] = [];
+  const subjectCodeMap = options.subjectCodeMap ?? {};
+  const unmappedSubjects = new Set<string>();
   const tableCounts: Record<HsbTableName, number> = Object.fromEntries(
     HSB_TABLE_NAMES.map((t) => [t, 0])
   ) as Record<HsbTableName, number>;
@@ -891,6 +935,8 @@ export function buildHsbDb(
         socialNumber,
         record,
         input,
+        subjectCodeMap,
+        unmappedSubjects,
       };
 
       const before: Record<HsbTableName, number> = Object.fromEntries(
@@ -931,6 +977,20 @@ export function buildHsbDb(
     tx(inputs);
   } finally {
     db.close();
+  }
+
+  // 과목코드 매핑 누락 경고: 매핑표에 없어 SubjectCode 가 비어버린 과목명을 안내.
+  if (Object.keys(subjectCodeMap).length === 0) {
+    warnings.push(
+      "과목코드 매핑표가 비어 있어 SubjectCode 를 채우지 못했습니다. 과목코드 엑셀을 먼저 업로드하세요."
+    );
+  } else if (unmappedSubjects.size > 0) {
+    const list = Array.from(unmappedSubjects).sort();
+    const shown = list.slice(0, 30).join(", ");
+    warnings.push(
+      `과목코드 매핑 실패 ${list.length}개 과목 (SubjectCode 공란): ${shown}` +
+        (list.length > 30 ? " …" : "")
+    );
   }
 
   return {

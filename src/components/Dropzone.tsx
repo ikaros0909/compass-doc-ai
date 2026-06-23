@@ -26,6 +26,7 @@ export function Dropzone({ onUploaded, compact = false }: DropzoneProps) {
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<number>(0);
   const [privacyOpen, setPrivacyOpen] = useState(false);
+  const [filenameOpen, setFilenameOpen] = useState(false);
 
   const upload = useCallback(
     async (files: File[]) => {
@@ -263,22 +264,79 @@ export function Dropzone({ onUploaded, compact = false }: DropzoneProps) {
         </div>
       </div>
 
-      {/* ── 파일명 규칙 ─────────────────────────────────────────── */}
-      <div className="flex items-start gap-2.5 rounded-xl border border-border/60 bg-muted/30 px-3.5 py-2.5 text-xs">
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-          <Info className="h-4 w-4" />
-        </span>
-        <div className="space-y-0.5">
-          <p className="font-semibold text-foreground">파일명 규칙</p>
-          <p className="leading-relaxed text-muted-foreground">
-            <code className="rounded bg-background px-1 py-0.5 font-mono text-foreground">
-              수험번호.pdf
-            </code>{" "}
-            형식으로 업로드해주세요. 파일명(확장자 제외)이 db3의{" "}
-            <code className="font-mono text-foreground">SocialNumber</code> 컬럼에
-            그대로 기록됩니다. 예:{" "}
-            <code className="font-mono text-foreground">10999-001.pdf</code>
-          </p>
+      {/* ── 파일명 규칙 (핵심만 노출, 클릭 시 상세·예시 펼침) ──────────── */}
+      <div className="overflow-hidden rounded-xl border border-border/60 bg-muted/30 text-xs">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setFilenameOpen((v) => !v);
+          }}
+          aria-expanded={filenameOpen}
+          className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left transition-colors hover:bg-primary/[0.06]"
+        >
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <Info className="h-4 w-4" />
+          </span>
+          <span className="flex-1 text-xs text-muted-foreground">
+            <span className="font-semibold text-foreground">파일명 규칙</span>
+            <span className="ml-1">
+              —{" "}
+              <code className="rounded bg-background px-1 py-0.5 font-mono text-foreground">
+                수험번호.pdf
+              </code>{" "}
+              형식 · 학생마다 다른 파일명
+            </span>
+          </span>
+          <ChevronDown
+            className={cn(
+              "h-4 w-4 shrink-0 text-primary/70 transition-transform duration-300",
+              filenameOpen && "rotate-180"
+            )}
+          />
+        </button>
+        <div
+          className={cn(
+            "grid transition-all duration-300 ease-out",
+            filenameOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
+          )}
+        >
+          <div className="overflow-hidden">
+            <div className="space-y-2 px-3.5 pb-3.5 pt-0.5 leading-relaxed text-muted-foreground">
+              <p>
+                파일명(확장자 제외)이 <b>수험번호</b>로 쓰이며, 학생을 구분하는
+                식별키이므로 학생마다 서로 달라야 합니다.
+              </p>
+              <ul className="space-y-1">
+                <li>
+                  <code className="font-mono text-foreground">ExamNumber</code>
+                  (수험번호) ← <b>파일명</b>이 그대로 기록됩니다.
+                </li>
+                <li>
+                  <code className="font-mono text-foreground">SocialNumber</code>
+                  (주민번호) ← PDF에서 주민등록번호 13자리를 읽어내면 그 값을 쓰고,
+                  뒷자리가 가려졌거나(
+                  <code className="font-mono text-foreground">*</code>) 읽지 못하면{" "}
+                  <b>수험번호(파일명)</b>로 대체됩니다.
+                </li>
+              </ul>
+              <p className="rounded-md bg-background/60 px-2.5 py-2">
+                <span className="font-medium text-foreground">예시</span> —{" "}
+                <code className="font-mono text-foreground">10999-001.pdf</code> 업로드 →{" "}
+                <code className="font-mono text-foreground">ExamNumber</code> ={" "}
+                <code className="font-mono text-foreground">10999-001</code>.
+                <br />
+                PDF에 주민번호{" "}
+                <code className="font-mono text-foreground">960910-1234567</code>이 보이면{" "}
+                <code className="font-mono text-foreground">SocialNumber</code> ={" "}
+                <code className="font-mono text-foreground">9609101234567</code>,
+                가려져 있으면(
+                <code className="font-mono text-foreground">960910-*******</code>){" "}
+                <code className="font-mono text-foreground">SocialNumber</code> ={" "}
+                <code className="font-mono text-foreground">10999-001</code>(수험번호 폴백).
+              </p>
+            </div>
+          </div>
         </div>
       </div>
 

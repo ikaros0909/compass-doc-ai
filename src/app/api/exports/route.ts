@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
-import { jobsRepo, hsbExportsRepo } from "@/lib/db";
+import { jobsRepo, hsbExportsRepo, subjectCodeRepo } from "@/lib/db";
 import { isUnlocked } from "@/lib/security";
 import { readEncryptedText } from "@/lib/storage";
 import {
@@ -94,7 +94,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         error:
-          "선택한 PDF에 파일명이 중복된 항목이 있습니다. IdentifyNumber/SocialNumber가 파일명으로 부여되므로 서로 다른 학생의 PDF는 파일명이 달라야 합니다. (수험번호.pdf 규칙)",
+          "선택한 PDF에 파일명이 중복된 항목이 있습니다. 파일명(=수험번호)이 ExamNumber/IdentifyNumber 식별키로 쓰이므로 서로 다른 학생의 PDF는 파일명이 달라야 합니다. (수험번호.pdf 규칙)",
         detail: duplicates.map(([base, names]) => ({
           baseName: base,
           originalNames: names,
@@ -148,9 +148,12 @@ export async function POST(request: Request) {
     }
   }
 
+  // 과목코드 매핑표(정규화 과목명 → 코드)를 한 번 로드해 내보내기에 주입.
+  const subjectCodeMap = subjectCodeRepo.asMap();
+
   let result;
   try {
-    result = buildHsbDb(inputs, { mogib1, mogib2 }, fileName);
+    result = buildHsbDb(inputs, { mogib1, mogib2, subjectCodeMap }, fileName);
   } catch (err) {
     return NextResponse.json(
       { error: "build failed", detail: (err as Error).message ?? String(err) },

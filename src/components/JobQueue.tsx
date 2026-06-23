@@ -6,6 +6,7 @@ import { Dropzone } from "./Dropzone";
 import { StatsBar } from "./StatsBar";
 import { JobItem } from "./JobItem";
 import { CreateExportDialog, ExportPreviewDialog } from "./ExportDialogs";
+import { SubjectCodeDialog } from "./SubjectCodeDialog";
 import { useJobEvents } from "@/hooks/useJobEvents";
 import type { BatchSummary, JobRecord } from "@/types/job";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,6 +17,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   AlertTriangle,
   Check,
+  CheckCircle2,
   Database,
   Filter,
   History,
@@ -23,6 +25,7 @@ import {
   RefreshCw,
   RotateCw,
   Search,
+  Table2,
   Trash2,
   X,
 } from "lucide-react";
@@ -54,6 +57,10 @@ export function JobQueue() {
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [createOpen, setCreateOpen] = useState(false);
+  const [subjectCodeOpen, setSubjectCodeOpen] = useState(false);
+  const [subjectCodeCount, setSubjectCodeCount] = useState<number | null>(null);
+  // 매핑이 바뀔 때마다 증가 — JobItem의 미매핑 배지 재조회 트리거.
+  const [subjectMapVersion, setSubjectMapVersion] = useState(0);
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [exportsInfo, setExportsInfo] = useState<{ count: number; sizeBytes: number }>(
     { count: 0, sizeBytes: 0 }
@@ -78,6 +85,27 @@ export function JobQueue() {
   useEffect(() => {
     void fetchExports();
   }, [fetchExports]);
+
+  const refreshSubjectCount = useCallback(async () => {
+    try {
+      const res = await fetch("/api/subject-codes?limit=1", { cache: "no-store" });
+      if (!res.ok) return;
+      const data = (await res.json()) as { count: number };
+      setSubjectCodeCount(data.count);
+    } catch {
+      /* 무시 */
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshSubjectCount();
+  }, [refreshSubjectCount]);
+
+  // 매핑 변경(수작업 매핑/업로드/복원/삭제) 후 — 전역 건수 갱신 + 작업 배지 재조회.
+  const bumpMapping = useCallback(() => {
+    setSubjectMapVersion((v) => v + 1);
+    void refreshSubjectCount();
+  }, [refreshSubjectCount]);
 
   const fetchJobs = useCallback(async () => {
     const url = activeBatch ? `/api/jobs?batchId=${activeBatch}` : "/api/jobs";
@@ -318,7 +346,11 @@ export function JobQueue() {
     <div className="flex min-h-0 flex-1 flex-col gap-4">
       {jobs.length === 0 ? (
         <div className="flex flex-1 items-center justify-center">
-          <div className="w-full max-w-xl">
+          <div className="w-full max-w-xl space-y-4">
+            <SubjectCodeStatus
+              count={subjectCodeCount}
+              onOpen={() => setSubjectCodeOpen(true)}
+            />
             <Dropzone onUploaded={onUploaded} />
           </div>
         </div>
@@ -529,6 +561,21 @@ export function JobQueue() {
                     내보낸 목록
                   </Link>
                 </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setSubjectCodeOpen(true)}
+                  className="h-7 gap-1 text-xs"
+                  title="과목코드 매핑 엑셀 업로드/관리 — db3 SubjectCode 채우기"
+                >
+                  <Table2 className="h-3.5 w-3.5" />
+                  과목코드 매핑
+                  {subjectCodeCount !== null && subjectCodeCount > 0 && (
+                    <Badge variant="secondary" className="ml-0.5 h-4 px-1 text-[10px]">
+                      {subjectCodeCount.toLocaleString()}
+                    </Badge>
+                  )}
+                </Button>
                 {failedInView.length > 0 && (
                   <Button
                     size="sm"
@@ -594,6 +641,8 @@ export function JobQueue() {
                     selectable={selectMode}
                     selected={selected.has(job.id)}
                     onSelectChange={toggleSelect}
+                    mappingVersion={subjectMapVersion}
+                    onMappingChanged={bumpMapping}
                   />
                 ))}
               </div>
@@ -622,6 +671,8 @@ export function JobQueue() {
                       selectable={selectMode}
                       selected={selected.has(job.id)}
                       onSelectChange={toggleSelect}
+                      mappingVersion={subjectMapVersion}
+                      onMappingChanged={bumpMapping}
                     />
                   ))
                 )}
@@ -649,7 +700,77 @@ export function JobQueue() {
         exportId={previewId}
         onClose={() => setPreviewId(null)}
       />
+      <SubjectCodeDialog
+        open={subjectCodeOpen}
+        onOpenChange={(o) => {
+          setSubjectCodeOpen(o);
+          // 닫을 때 매핑이 바뀌었을 수 있으므로 작업 배지/건수 재조회.
+          if (!o) bumpMapping();
+        }}
+        onChanged={setSubjectCodeCount}
+      />
     </div>
+  );
+}
+
+/**
+ * 첫 화면(빈 상태)에서 과목코드 매핑 준비 여부를 알리고, 미등록 시 PDF 처리 전에
+ * 먼저 매핑을 등록하도록 유도한다.
+ */
+function SubjectCodeStatus({
+  count,
+  onOpen,
+}: {
+  count: number | null;
+  onOpen: () => void;
+}) {
+  if (count === null) {
+    return (
+      <div className="flex items-center justify-center gap-2 rounded-xl border border-border/50 bg-muted/30 px-4 py-3 text-xs text-muted-foreground">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        과목코드 매핑 상태 확인 중…
+      </div>
+    );
+  }
+
+  if (count === 0) {
+    return (
+      <div className="rounded-xl border border-amber-500/40 bg-amber-500/[0.07] p-4">
+        <div className="flex items-start gap-3">
+          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-amber-700 dark:text-amber-300">
+              과목코드 매핑이 비어 있습니다
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              교과 성적의 <code className="font-mono">SubjectCode</code> 를 채우려면 PDF
+              처리 전에 과목코드 매핑을 먼저 등록하세요. 등록하지 않으면 SubjectCode 가
+              빈 값으로 내보내집니다.
+            </p>
+            <Button size="sm" onClick={onOpen} className="mt-3 h-8 gap-1.5 text-xs">
+              <Table2 className="h-3.5 w-3.5" />
+              과목코드 매핑 등록
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="flex w-full items-center gap-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06] px-4 py-3 text-left transition-colors hover:bg-emerald-500/[0.1]"
+    >
+      <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+      <span className="text-xs text-foreground">
+        과목코드 매핑{" "}
+        <span className="font-semibold">{count.toLocaleString()}건</span> 준비됨 —
+        내보내기 시 SubjectCode 가 자동으로 채워집니다.
+      </span>
+      <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">관리 →</span>
+    </button>
   );
 }
 
