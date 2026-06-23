@@ -157,6 +157,41 @@ export async function probePdf(pdfPath: string): Promise<PdfProbe> {
   }
 }
 
+interface GlyphItem {
+  str: string;
+  x: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * 한 줄(line)의 text item들을 가로 위치(x)를 근거로 이어붙인다.
+ *
+ * 많은 한글 PDF는 글자 하나하나를 개별 text item으로 방출한다(글리프 단위 배치).
+ * 이때 단순히 공백으로 join 하면 "고 려 한 행 동"처럼 글자마다 공백이 끼어
+ * 본문이 망가진다. 대신 직전 item의 오른쪽 끝(x+width)과 다음 item의 시작 x
+ * 사이 간격이 글자 크기 대비 의미 있게 벌어졌을 때만(어절 사이 띄어쓰기) 공백을
+ * 넣고, 글리프가 바짝 붙어 있으면 그대로 이어 붙인다. 이미 들어있는 명시적 공백
+ * item은 보존된다.
+ */
+function joinLineItems(items: GlyphItem[]): string {
+  let line = "";
+  let prevEndX: number | null = null;
+  for (const it of items) {
+    if (it.str === "") continue;
+    if (prevEndX !== null && line.length > 0) {
+      const gap = it.x - prevEndX;
+      const threshold = Math.max(1, it.h * 0.3);
+      if (gap > threshold && !/\s$/.test(line) && !/^\s/.test(it.str)) {
+        line += " ";
+      }
+    }
+    line += it.str;
+    prevEndX = it.x + it.w;
+  }
+  return line.replace(/\s+/g, " ").trim();
+}
+
 export async function extractPagesFromPdf(pdfPath: string): Promise<PageText[]> {
   const pdfjs = await loadPdfjs();
 
@@ -175,19 +210,31 @@ export async function extractPagesFromPdf(pdfPath: string): Promise<PageText[]> 
     const content = await page.getTextContent();
     const lines: string[] = [];
     let lastY: number | null = null;
-    let buffer: string[] = [];
-    for (const item of content.items as Array<{ str: string; transform: number[] }>) {
+    let buffer: GlyphItem[] = [];
+
+    const flush = () => {
+      const line = joinLineItems(buffer);
+      if (line) lines.push(line);
+      buffer = [];
+    };
+
+    for (const item of content.items as Array<{
+      str: string;
+      width?: number;
+      height?: number;
+      transform: number[];
+    }>) {
       const y = item.transform[5];
-      if (lastY !== null && Math.abs(y - lastY) > 2) {
-        const line = buffer.join(" ").replace(/\s+/g, " ").trim();
-        if (line) lines.push(line);
-        buffer = [];
-      }
-      buffer.push(item.str);
+      if (lastY !== null && Math.abs(y - lastY) > 2) flush();
+      buffer.push({
+        str: item.str,
+        x: item.transform[4],
+        w: item.width ?? 0,
+        h: item.height || Math.abs(item.transform[0]) || 8,
+      });
       lastY = y;
     }
-    const tail = buffer.join(" ").replace(/\s+/g, " ").trim();
-    if (tail) lines.push(tail);
+    flush();
     pages.push({ page: p, lines });
   }
 

@@ -480,7 +480,9 @@ function buildStudentBaseInfo(ctx: StudentContext): StudentBaseInfoRow {
     MasterSchoolYN: "",
     SpecializedSchoolYN: "",
     CorrectionRegisterYN: "",
-    ExamNumber: ctx.socialNumber,
+    // ExamNumber(수험번호)는 파일명 기반 식별번호(IdentifyNumber)와 동일하다.
+    // 주민번호(SocialNumber)를 넣던 오매핑을 바로잡는다.
+    ExamNumber: ctx.identifyNumber,
     UniqueFileName: ctx.input.originalName,
     PictureFileName: "",
   };

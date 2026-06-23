@@ -2101,7 +2101,8 @@ function collectGradesTablesWithYear(root: unknown): Array<{
     const type = typeof o.type === "string" ? o.type : "";
     if (type === "table") {
       const header = tableHeaderText(o).replace(/\s+/g, "");
-      if (/학기.*교과.*과목.*단위수/.test(header)) {
+      // 2025 고교학점제 서식은 "단위수" 대신 "학점수"를 쓴다. 둘 다 수용.
+      if (/학기.*교과.*과목.*(?:단위수|학점수)/.test(header)) {
         out.push({ table: o, grade: currentGrade, category: currentCategory });
       }
     }
@@ -2505,6 +2506,14 @@ export function parseStudentRecord(json: unknown): StudentRecord {
     ? splitGov24Sections(lines)
     : recoverAttendanceRows(redistributeSections1to3(splitIntoBuckets(lines)));
   const sections = buildSections(buckets);
+
+  // 성명: 표준(비-정부24) 서식은 인적사항 본문에 "성명 : 홍길동" 으로만 등장하고
+  // 페이지 푸터에 이름이 없어 extractMeta 가 잡지 못한다. 인적 섹션에서 보강한다.
+  if (!meta.name) {
+    const personal = sections.find((s) => s.id === "personal");
+    const m = personal?.text.match(/성\s*명\s*[:：]\s*([가-힯]{2,5})/);
+    if (m) meta.name = m[1];
+  }
 
   // opendataloader-pdf 트리에서 교과학습 테이블을 구조 기반으로 추출해 덮어쓰기
   const isOpendataloader =

@@ -202,10 +202,45 @@ export async function convertPdfToJson(
         diagnostics: diag,
       };
     } catch (err) {
-      // ── Phase 3: opendataloader 예외 (Java 미설치 등)
+      // ── Phase 3: opendataloader 예외
       const classified = classifyError(err);
       const reason = `${classified.summary} | ${classified.detail}`;
       diag.notes.push(`opendataloader 예외: ${reason}`);
+
+      // hybrid(auto) 경로는 docling/OCR가 주입한 텍스트 노드에 색상 정보가 없어
+      // 머리글 감지 후처리에서 NPE로 죽는 PDF가 있다(verapdf calculateTextColor).
+      // 순수 Java(off) 경로는 PDFBox 색상이 채워져 동일 PDF를 정상 변환하는 경우가
+      // 많고, pdfjs 폴백(텍스트 전용)보다 구조화 JSON 품질이 월등하므로 off 모드로
+      // 한 번 더 시도한 뒤에만 pdfjs로 폴백한다.
+      if (hybrid.enabled) {
+        try {
+          diag.hybridMode = "off";
+          const retry = await runOpenDataLoader(pdfPath, "off", hybrid);
+          diag.outputFile = retry.outputFile;
+          const retryAnalysis = await analyzeOpenDataLoaderResult(retry.plaintextJson);
+          diag.textLength = retryAnalysis.textLength;
+          diag.nodeTypes = retryAnalysis.nodeTypes;
+          if (!retryAnalysis.empty) {
+            await encryptAndStore(retry.plaintextJson, id);
+            diag.notes.push("hybrid 예외 → 순수 Java(off) 재시도 성공");
+            console.warn(
+              `[converter] ${logName} → hybrid 실패(${classified.summary}) → 순수 Java 재시도 성공`
+            );
+            return {
+              jsonPath: encJsonPath(id),
+              engine: "opendataloader-pdf",
+              fallbackReason: `hybrid 실패 → 순수 Java 재시도: ${classified.summary}`,
+              diagnostics: diag,
+            };
+          }
+          await deleteIfExists(retry.plaintextJson);
+          diag.notes.push("순수 Java(off) 재시도도 빈 결과");
+        } catch (retryErr) {
+          const m = retryErr instanceof Error ? retryErr.message : String(retryErr);
+          diag.notes.push(`순수 Java(off) 재시도 실패: ${m}`);
+        }
+      }
+
       console.error(`[converter] ${logName} → FAILED: ${classified.summary} → pdfjs 폴백`);
       await convertWithPdfJs(pdfPath, id, reason);
       return {
