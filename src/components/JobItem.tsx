@@ -104,7 +104,7 @@ function JobItemComponent({
   >(null);
   const canSelect = selectable && job.status === "completed";
 
-  // 완료 작업의 교과 과목코드 매핑 점검 — 미매핑 여부를 처리 목록에 표시.
+  // 완료 작업의 과목코드 매핑 점검 — 미매핑 여부를 처리 목록에 표시.
   useEffect(() => {
     if (job.status !== "completed") {
       setSubjectInfo(null);
@@ -208,17 +208,17 @@ function JobItemComponent({
             <button
               type="button"
               onClick={() => setSubjectsOpen(true)}
-              title="교과 과목코드 매핑 점검 / 수작업 매핑"
+              title="과목코드 매핑 점검 / 수작업 매핑"
             >
               {subjectInfo.unmappedCount > 0 ? (
                 <Badge variant="warning" className="gap-1 text-[10px]">
                   <AlertTriangle className="h-3 w-3" />
-                  교과 미매핑 {subjectInfo.unmappedCount}
+                  과목 미매핑 {subjectInfo.unmappedCount}
                 </Badge>
               ) : (
                 <Badge variant="success" className="gap-1 text-[10px]">
                   <ListChecks className="h-3 w-3" />
-                  교과코드 OK
+                  과목코드 OK
                 </Badge>
               )}
             </button>
@@ -250,7 +250,7 @@ function JobItemComponent({
             <Button
               variant="ghost"
               size="icon"
-              title="교과 과목코드 매핑 점검 / 수작업 매핑"
+              title="과목코드 매핑 점검 / 수작업 매핑"
               onClick={() => setSubjectsOpen(true)}
               className={cn(
                 subjectInfo && subjectInfo.unmappedCount > 0 &&

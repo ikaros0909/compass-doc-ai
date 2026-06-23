@@ -34,7 +34,7 @@ interface JobSubjectsDialogProps {
 }
 
 /**
- * 한 PDF(작업)의 교과 과목들이 과목코드 매핑표에 매핑됐는지 보여주고, 미매핑 과목에
+ * 한 PDF(작업)의 과목들이 과목코드 매핑표에 매핑됐는지 보여주고, 미매핑 과목에
  * 코드를 직접 입력해 저장(수작업 매핑)할 수 있다.
  */
 export function JobSubjectsDialog({
@@ -116,7 +116,7 @@ export function JobSubjectsDialog({
             과목코드 매핑 점검 — {jobName}
           </DialogTitle>
           <DialogDescription>
-            이 PDF의 교과 과목이 과목코드 매핑표에 있는지 확인합니다. 미매핑 과목에
+            이 PDF의 과목이 과목코드 매핑표에 있는지 확인합니다. 미매핑 과목에
             코드를 입력하고 저장하면 매핑표에 추가되어 이후 모든 내보내기에 반영됩니다.
           </DialogDescription>
         </DialogHeader>
@@ -136,7 +136,7 @@ export function JobSubjectsDialog({
             </Badge>
           ) : (
             <Badge variant="secondary" className="h-6 px-2">
-              교과 과목 없음
+              과목 없음
             </Badge>
           )}
         </div>
@@ -150,12 +150,12 @@ export function JobSubjectsDialog({
 
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border">
           <div className="shrink-0 border-b bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-            교과 과목 {subjects.length}개 · 미매핑 과목은 코드를 입력해 저장하세요
+            과목 {subjects.length}개 · 미매핑 과목은 코드를 입력해 저장하세요
           </div>
           <div className="min-h-0 flex-1 overflow-auto">
             {!loading && subjects.length === 0 ? (
               <div className="p-8 text-center text-xs text-muted-foreground">
-                추출된 교과 과목이 없습니다.
+                추출된 과목이 없습니다.
               </div>
             ) : (
               <table className="w-full border-collapse text-xs">
